@@ -87,10 +87,15 @@ func storeSocketMap(bizType, bizId, channelId, ip string) error {
 }
 
 func subscribeAdminOnlineMonitor(client *CometClient) {
-	// subscribe the channel
 	c := redisPool.Get()
-	defer c.Close()
+	defer func() {
+		c.Close()
+		if err := recover(); err != nil {
+			fmt.Printf("error in the subscibe function is %+v\n", err)
+		}
+	}()
 
+	// subscribe the channel
 	psc := redis.PubSubConn{c}
 	psc.Subscribe(CHANNEL_ADMIN_ONLINE_MONITOR)
 	for {
@@ -98,7 +103,10 @@ func subscribeAdminOnlineMonitor(client *CometClient) {
 		case redis.Message:
 			fmt.Printf("Receive message: %s\n", string([]byte(v.Data)))
 			monitorMsg := []byte(v.Data)
+			//_, isClose := <-client.send
+			//if !isClose {
 			client.send <- monitorMsg
+			//}
 		case error:
 			fmt.Println("ERROR: subscribing the admin online monitor with error: %+v", v)
 			return

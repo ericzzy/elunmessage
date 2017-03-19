@@ -56,6 +56,11 @@ func HandleMessage(message map[string]interface{}) error {
 }
 
 func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status string) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("recover from the error: %+v\n", err)
+		}
+	}()
 	// delete the act field
 	delete(message, FIELD_ACT)
 	message["status"] = status
@@ -117,6 +122,11 @@ func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status strin
 }
 
 func HandleCustomerQueueMessage(message map[string]interface{}) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("recover from the error: %+v\n", err)
+		}
+	}()
 	delete(message, FIELD_ACT)
 
 	kfId := ""
@@ -228,6 +238,11 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 }
 
 func HandleReceptionMessage(message map[string]interface{}) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("recover from the error: %+v\n", err)
+		}
+	}()
 	delete(message, FIELD_ACT)
 
 	kfId := ""
@@ -417,6 +432,11 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 }
 
 func HandleChatMessage(message map[string]interface{}) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("recover from the error: %+v\n", err)
+		}
+	}()
 	delete(message, FIELD_ACT)
 
 	kfId := ""
@@ -601,6 +621,12 @@ func HandleChatMessage(message map[string]interface{}) error {
 }
 
 func HandleSwitchCustomerMessage(message map[string]interface{}) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("recover from the error: %+v\n", err)
+		}
+	}()
+
 	delete(message, FIELD_ACT)
 
 	kfId := ""
