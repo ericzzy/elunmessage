@@ -114,11 +114,17 @@ func (client *CometClient) Send() {
 				return
 			}
 
+			fmt.Printf("Push message to socket client: %s\n", string(message))
+
 			w, err := client.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
+				fmt.Printf("Could not get the socket writer with error:%+v\n", err)
 				return
 			}
 			w.Write(message)
+			if err := w.Close(); err != nil {
+				return
+			}
 		case <-ticker.C:
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
@@ -138,7 +144,7 @@ func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
 
 	conn, err := wsupgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("Failed to set websocket upgrade: %+v", err)
+		fmt.Printf("Failed to set websocket upgrade: %+v\n", err)
 		return
 	}
 
