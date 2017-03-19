@@ -57,7 +57,7 @@ func HandleKefuOnlineMessage(message map[string]interface{}) error {
 	if _kfId, ok := message[ID_KF]; !ok {
 		return nil
 	} else {
-		kfId = _kfId.(string)
+		kfId = fmt.Sprintf("%v", _kfId)
 	}
 
 	if kfId == "" {
@@ -112,12 +112,37 @@ func HandleKefuOnlineMessage(message map[string]interface{}) error {
 func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	delete(message, FIELD_ACT)
 
-	kfId := message["kf_id"]
-	channelId := message["channel_id"]
-	threadId := message["thread_id"]
-	chatMessage := message["message"]
+	kfId := ""
+	if _kfId, ok := message["kf_id"]; !ok {
+		return errors.New("kf_id was not provided")
+	} else {
+		kfId = fmt.Sprintf("%v", _kfId)
+	}
 
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId.(string), channelId.(string))
+	channelId := ""
+	if _channelId, ok := message["channel_id"]; !ok {
+		return errors.New("channel_id was not provided")
+	} else {
+		channelId = fmt.Sprintf("%v", _channelId)
+	}
+
+	threadId := ""
+	if _threadId, ok := message["threadid"]; !ok {
+		return errors.New("threadid was not provided")
+	} else {
+		threadId = fmt.Sprintf("%v", _threadId)
+	}
+
+	if kfId == "" || channelId == "" || threadId == "" {
+		return errors.New("kf_id, channel_id or threadid was not provided")
+	}
+
+	chatMessage, ok := message["message"]
+	if !ok {
+		return errors.New("message was not provided")
+	}
+
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 
 	delete(message, "message")
 
@@ -133,7 +158,7 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 
 	// store the message
 	chatMsgBytes, _ := json.Marshal(chatMessage)
-	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelId:%s:threadId:%s", kfId.(string), channelId.(string), threadId.(string)), string(chatMsgBytes)); err != nil {
+	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelId:%s:threadId:%s", kfId, channelId, threadId), string(chatMsgBytes)); err != nil {
 		fmt.Printf("Warn: Fail to store the customer queue message with error: %+v\n", err)
 		return errors.New("Fail to store the customer queue message")
 	}
@@ -159,19 +184,19 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	}
 
 	// get the kf's ip
-	socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_KF, kfId.(string)))
+	socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:", BIZ_TYPE_KF, kfId))
 	if err != nil {
 		fmt.Printf("ERROR: Fail to get the socket ip  with error: %+v\n", err)
 	}
 	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId.(string), "channel_id": channelId.(string), "threads": threadlist}
+	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
 	threadListMsgBytes, _ := json.Marshal(threadListMsg)
 
 	// push the current thread info to the corresponding kf
 	if socketIPVal != nil {
 		socketIP := string(socketIPVal.([]byte))
 		if socketIP != "" && socketIP == bindIPAddress {
-			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_KF, kfId.(string))
+			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:", BIZ_TYPE_KF, kfId)
 			cometHub.mutex.RLock()
 			cometClient := cometHub.clients[clientKey]
 			cometHub.mutex.RUnlock()
@@ -182,7 +207,7 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 				}()
 			}
 		} else {
-			PushRPCMessage(socketIP, [][]byte{threadListMsgBytes, threadInfoBytes}, BIZ_TYPE_KF, kfId.(string))
+			PushRPCMessage(socketIP, [][]byte{threadListMsgBytes, threadInfoBytes}, BIZ_TYPE_KF, kfId, "")
 		}
 	}
 
@@ -198,22 +223,47 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 func HandleReceptionMessage(message map[string]interface{}) error {
 	delete(message, FIELD_ACT)
 
-	kfId := message["kf_id"]
-	channelId := message["channel_id"]
-	threadId := message["thread_id"]
-	chatMessage := message["message"]
+	kfId := ""
+	if _kfId, ok := message["kf_id"]; !ok {
+		return errors.New("kf_id was not provided")
+	} else {
+		kfId = fmt.Sprintf("%v", _kfId)
+	}
+
+	channelId := ""
+	if _channelId, ok := message["channel_id"]; !ok {
+		return errors.New("channel_id was not provided")
+	} else {
+		channelId = fmt.Sprintf("%v", _channelId)
+	}
+
+	threadId := ""
+	if _threadId, ok := message["threadid"]; !ok {
+		return errors.New("threadid was not provided")
+	} else {
+		threadId = fmt.Sprintf("%v", _threadId)
+	}
+
+	if kfId == "" || channelId == "" || threadId == "" {
+		return errors.New("kf_id, channel_id or threadid was not provided")
+	}
+
+	chatMessage, ok := message["message"]
+	if !ok {
+		return errors.New("message was not provided")
+	}
 
 	sendMsgType := message["sendmsg_type"]
 
 	// update the thread info
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId.(string), channelId.(string))
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 
 	delete(message, "message")
 
 	c := redisPool.Get()
 	defer c.Close()
 	// merge the thread info
-	existThreadInfo, err := c.Do("HGET", threadKey, threadId.(string))
+	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
 	if err != nil {
 		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
 		return errors.New("Fail to get the thread info")
@@ -240,7 +290,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 
 	// store the message
 	chatMsgBytes, _ := json.Marshal(chatMessage)
-	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelId:%s:threadId:%s", kfId.(string), channelId.(string), threadId.(string)), string(chatMsgBytes)); err != nil {
+	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), string(chatMsgBytes)); err != nil {
 		fmt.Println("Warn: Fail to store the customer queue message with error: %+v", err)
 		return errors.New("Fail to store the customer queue message")
 	}
@@ -265,22 +315,22 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	}
 
 	// get the kf's ip
-	socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_KF, kfId.(string)))
+	socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:", BIZ_TYPE_KF, kfId))
 	if err != nil {
 		fmt.Println("ERROR: Fail to get the socket ip  with error: %+v", err)
 	}
 	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId.(string), "channel_id": channelId.(string), "threads": threadlist}
+	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
 	threadListMsgBytes, _ := json.Marshal(threadListMsg)
 
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId.(string), "channel_id": channelId.(string), "thread_id": threadId.(string), "message": chatMessage}
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 
 	// push the current thread info to the corresponding kf
 	if socketIPVal != nil {
 		socketIP := string(socketIPVal.([]byte))
 		if socketIP != "" && socketIP == bindIPAddress {
-			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_KF, kfId.(string))
+			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:", BIZ_TYPE_KF, kfId)
 			cometHub.mutex.RLock()
 			cometClient := cometHub.clients[clientKey]
 			cometHub.mutex.RUnlock()
@@ -292,7 +342,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 				}()
 			}
 		} else {
-			PushRPCMessage(socketIP, [][]byte{threadListMsgBytes, threadInfoBytes, currentMsgBytes}, BIZ_TYPE_KF, kfId.(string))
+			PushRPCMessage(socketIP, [][]byte{threadListMsgBytes, threadInfoBytes, currentMsgBytes}, BIZ_TYPE_KF, kfId, "")
 		}
 	}
 
@@ -314,16 +364,20 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	}
 
 	threadInfoMap := threadInfo.(map[string]interface{})
-	customerId, ok := threadInfoMap["customer_id"]
-	if !ok || customerId == "" {
+	customerIdObj, ok := threadInfoMap["customer_id"]
+	if !ok {
 		return nil
 	}
 
-	switch sendMsgType {
-	case SEND_MSG_TYPE_PUSH:
-		socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_CUSTOMER, customerId.(string)))
+	customerId := fmt.Sprintf("%v", customerIdObj)
+	if customerId == "" {
+		return nil
+	}
+
+	if sendMsgType == "" {
+		socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", BIZ_TYPE_CUSTOMER, customerId, channelId))
 		if err != nil {
-			fmt.Printf("Could not get the socket ip for biz type %s, biz id %s with error: %+v", BIZ_TYPE_CUSTOMER, customerId.(string), err)
+			fmt.Printf("Could not get the socket ip for biz type %s, biz id %s with error: %+v", BIZ_TYPE_CUSTOMER, customerId, err)
 			return err
 		}
 		if socketIPVal != nil {
@@ -332,7 +386,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 				return nil
 			}
 			if socketIP == bindIPAddress {
-				clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_CUSTOMER, customerId.(string))
+				clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", BIZ_TYPE_CUSTOMER, customerId, channelId)
 				cometHub.mutex.RLock()
 				cometClient := cometHub.clients[clientKey]
 				cometHub.mutex.RUnlock()
@@ -342,11 +396,14 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 					}()
 				}
 			} else {
-				PushRPCMessage(socketIP, [][]byte{currentMsgBytes}, BIZ_TYPE_CUSTOMER, customerId.(string))
+				PushRPCMessage(socketIP, [][]byte{currentMsgBytes}, BIZ_TYPE_CUSTOMER, customerId, channelId)
 			}
 		}
-	case SEND_MSG_TYPE_API:
-		//TODO: send the message to the business api
+	} else {
+		_sendMsgType, ok := sendMsgType.(string)
+		if ok {
+			MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
+		}
 	}
 
 	return nil
@@ -355,16 +412,41 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 func HandleChatMessage(message map[string]interface{}) error {
 	delete(message, FIELD_ACT)
 
-	kfId := message["kf_id"]
-	channelId := message["channel_id"]
-	threadId := message["thread_id"]
-	chatMessage := message["message"]
+	kfId := ""
+	if _kfId, ok := message["kf_id"]; !ok {
+		return errors.New("kf_id was not provided")
+	} else {
+		kfId = fmt.Sprintf("%v", _kfId)
+	}
+
+	channelId := ""
+	if _channelId, ok := message["channel_id"]; !ok {
+		return errors.New("channel_id was not provided")
+	} else {
+		channelId = fmt.Sprintf("%v", _channelId)
+	}
+
+	threadId := ""
+	if _threadId, ok := message["threadid"]; !ok {
+		return errors.New("threadid was not provided")
+	} else {
+		threadId = fmt.Sprintf("%v", _threadId)
+	}
+
+	if kfId == "" || channelId == "" || threadId == "" {
+		return errors.New("kf_id, channel_id or threadid was not provided")
+	}
+
+	chatMessage, ok := message["message"]
+	if !ok {
+		return errors.New("message was not provided")
+	}
 
 	sendMsgType := message["sendmsg_type"]
 	bizType := message["biz_type"]
 
 	// update the thread info
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId.(string), channelId.(string))
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 
 	delete(message, "message")
 	delete(message, "biz_type")
@@ -372,7 +454,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 	c := redisPool.Get()
 	defer c.Close()
 	// merge the thread info
-	existThreadInfo, err := c.Do("HGET", threadKey, threadId.(string))
+	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
 	if err != nil {
 		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
 		return errors.New("Fail to get the thread info")
@@ -399,7 +481,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 
 	// store the message
 	chatMsgBytes, _ := json.Marshal(chatMessage)
-	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelId:%s:threadId:%s", kfId.(string), channelId.(string), threadId.(string)), string(chatMsgBytes)); err != nil {
+	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), string(chatMsgBytes)); err != nil {
 		fmt.Println("Warn: Fail to store the customer queue message with error: %+v", err)
 		return errors.New("Fail to store the customer queue message")
 	}
@@ -424,22 +506,22 @@ func HandleChatMessage(message map[string]interface{}) error {
 	}
 
 	// get the kf's ip
-	socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_KF, kfId.(string)))
+	socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:", BIZ_TYPE_KF, kfId))
 	if err != nil {
 		fmt.Println("ERROR: Fail to get the socket ip  with error: %+v", err)
 	}
 	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId.(string), "channel_id": channelId.(string), "threads": threadlist}
+	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
 	threadListMsgBytes, _ := json.Marshal(threadListMsg)
 
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId.(string), "channel_id": channelId.(string), "thread_id": threadId.(string), "message": chatMessage}
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 
 	// push the current thread info to the corresponding kf
 	if socketIPVal != nil {
 		socketIP := string(socketIPVal.([]byte))
 		if socketIP != "" && socketIP == bindIPAddress {
-			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_KF, kfId.(string))
+			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:", BIZ_TYPE_KF, kfId)
 			cometHub.mutex.RLock()
 			cometClient := cometHub.clients[clientKey]
 			cometHub.mutex.RUnlock()
@@ -450,7 +532,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 				}()
 			}
 		} else {
-			PushRPCMessage(socketIP, [][]byte{threadListMsgBytes, currentMsgBytes}, BIZ_TYPE_KF, kfId.(string))
+			PushRPCMessage(socketIP, [][]byte{threadListMsgBytes, currentMsgBytes}, BIZ_TYPE_KF, kfId, "")
 		}
 	}
 
@@ -467,16 +549,19 @@ func HandleChatMessage(message map[string]interface{}) error {
 		}
 
 		threadInfoMap := threadInfo.(map[string]interface{})
-		customerId, ok := threadInfoMap["customer_id"]
-		if !ok || customerId == "" {
+		customerIdObj, ok := threadInfoMap["customer_id"]
+		if !ok {
+			return nil
+		}
+		customerId := fmt.Sprintf("%v", customerIdObj)
+		if customerId == "" {
 			return nil
 		}
 
-		switch sendMsgType {
-		case SEND_MSG_TYPE_PUSH:
-			socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_CUSTOMER, customerId.(string)))
+		if sendMsgType == "" {
+			socketIPVal, err := c.Do("HGET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", BIZ_TYPE_CUSTOMER, customerId, channelId))
 			if err != nil {
-				fmt.Printf("Could not get the socket ip for biz type %s, biz id %s with error: %+v", BIZ_TYPE_CUSTOMER, customerId.(string), err)
+				fmt.Printf("Could not get the socket ip for biz type %s, biz id %s with error: %+v", BIZ_TYPE_CUSTOMER, customerId, err)
 				return err
 			}
 			if socketIPVal != nil {
@@ -485,7 +570,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 					return nil
 				}
 				if socketIP == bindIPAddress {
-					clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s", BIZ_TYPE_CUSTOMER, customerId.(string))
+					clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", BIZ_TYPE_CUSTOMER, customerId, channelId)
 					cometHub.mutex.RLock()
 					cometClient := cometHub.clients[clientKey]
 					cometHub.mutex.RUnlock()
@@ -495,11 +580,14 @@ func HandleChatMessage(message map[string]interface{}) error {
 						}()
 					}
 				} else {
-					PushRPCMessage(socketIP, [][]byte{currentMsgBytes}, BIZ_TYPE_CUSTOMER, customerId.(string))
+					PushRPCMessage(socketIP, [][]byte{currentMsgBytes}, BIZ_TYPE_CUSTOMER, customerId, channelId)
 				}
 			}
-		case SEND_MSG_TYPE_API:
-			//TODO: send the message to the business api
+		} else {
+			_sendMsgType, ok := sendMsgType.(string)
+			if ok {
+				MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
+			}
 		}
 	}
 	return nil

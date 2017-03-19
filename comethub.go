@@ -35,12 +35,12 @@ func (h *CometHub) Run() {
 	for {
 		select {
 		case client := <-h.register:
-			if err := storeSocketMap(client.bizType, client.bizId, bindIPAddress); err != nil {
+			if err := storeSocketMap(client.bizType, client.bizId, client.channelId, bindIPAddress); err != nil {
 				client.closeChan <- struct{}{}
 				continue
 			}
 
-			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s", client.bizType, client.bizId)
+			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", client.bizType, client.bizId, client.channelId)
 			h.clients[clientKey] = client
 
 			if client.bizType == BIZ_TYPE_ADMIN {
@@ -65,7 +65,7 @@ func (h *CometHub) Run() {
 				}
 			}(client)
 		case client := <-h.unregister:
-			clientKey := fmt.Sprintf("biztype:%s:bizid:%s", client.bizType, client.bizId)
+			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", client.bizType, client.bizId, client.channelId)
 			if _, ok := h.clients[clientKey]; ok {
 				delete(h.clients, clientKey)
 				close(client.send)
@@ -74,11 +74,11 @@ func (h *CometHub) Run() {
 	}
 }
 
-func storeSocketMap(bizType, bizId, ip string) error {
+func storeSocketMap(bizType, bizId, channelId, ip string) error {
 	c := redisPool.Get()
 	defer c.Close()
 
-	if _, err := c.Do("HSET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s", bizType, bizId), ip); err != nil {
+	if _, err := c.Do("HSET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", bizType, bizId, channelId), ip); err != nil {
 		fmt.Println("ERROR: Fail to store the socket map for biz type %s and biz id %s with error: %+v", bizType, bizId, err)
 		return errors.New("Fail to store the socket map")
 	}

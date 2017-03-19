@@ -49,8 +49,8 @@ func handleMsgFromService(c *gin.Context) {
 
 	// process the message
 	if err := HandleMessage(msg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusInternalServerError, "message": "处理消息发生内部错误"})
-		c.AbortWithError(http.StatusInternalServerError, errors.New("处理消息发生内部错误"))
+		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusInternalServerError, "message": err.Error()})
+		c.AbortWithError(http.StatusInternalServerError, err)
 		return
 
 	}
