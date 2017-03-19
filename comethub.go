@@ -44,6 +44,7 @@ func (h *CometHub) Run() {
 			h.clients[clientKey] = client
 
 			if client.bizType == BIZ_TYPE_ADMIN {
+				fmt.Printf("listen to the admin monitor")
 				go subscribeAdminOnlineMonitor(client)
 			}
 
@@ -53,6 +54,9 @@ func (h *CometHub) Run() {
 					case message := <-c.receive:
 						var msg map[string]interface{}
 						if err := json.Unmarshal(message, &msg); err == nil {
+							if act, ok := msg["act"]; ok && act == MSG_TYPE_CHAT {
+								msg["biz_type"] = c.bizType
+							}
 							HandleMessage(msg)
 						}
 					case <-c.msgHandleCloseChan:
@@ -90,18 +94,22 @@ func subscribeAdminOnlineMonitor(client *CometClient) {
 	psc := redis.PubSubConn{c}
 	psc.Subscribe(CHANNEL_ADMIN_ONLINE_MONITOR)
 	for {
-		select {
-		case <-client.adminMonitorCloseChan:
-			return
-		}
-
 		switch v := psc.Receive().(type) {
 		case redis.Message:
+			fmt.Printf("Receive message: %s\n", string([]byte(v.Data)))
 			monitorMsg := []byte(v.Data)
 			client.send <- monitorMsg
 		case error:
 			fmt.Println("ERROR: subscribing the admin online monitor with error: %+v", v)
 			return
 		}
+
+		/*
+			select {
+			case <-client.adminMonitorCloseChan:
+				fmt.Printf("admin monitor close")
+				return
+			}
+		*/
 	}
 }

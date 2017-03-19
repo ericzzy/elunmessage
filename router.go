@@ -43,6 +43,10 @@ func handleMsgFromService(c *gin.Context) {
 		return
 	}
 
+	if act, ok := msg["act"]; ok && act == MSG_TYPE_CHAT {
+		msg["biz_type"] = BIZ_TYPE_CUSTOMER
+	}
+
 	// process the message
 	if err := HandleMessage(msg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusInternalServerError, "message": "处理消息发生内部错误"})
