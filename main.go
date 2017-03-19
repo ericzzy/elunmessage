@@ -63,7 +63,7 @@ func main() {
 	}
 	defer redisPool.Close()
 
-	cometHub := NewCometHub()
+	cometHub = NewCometHub()
 	go cometHub.Run()
 
 	pushMsgHandler := &PushMessageHandler{hub: cometHub}

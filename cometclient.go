@@ -133,7 +133,9 @@ func (client *CometClient) Send() {
 			}
 		case <-ticker.C:
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			fmt.Printf("ping....\n")
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				fmt.Printf("failed to send the socket ping message\n")
 				return
 			}
 		}
