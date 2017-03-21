@@ -165,6 +165,7 @@ func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
 	client.hub.register <- client
 
 	go client.Send()
+	go client.Close()
 
 	client.Receive()
 }

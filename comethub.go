@@ -69,7 +69,11 @@ func (h *CometHub) Run() {
 			if _, ok := h.clients[clientKey]; ok {
 				delete(h.clients, clientKey)
 				close(client.send)
+				close(client.receive)
 			}
+
+			// delete the socket map in the redis
+			deleteSocketMap(client.bizType, client.bizId, client.channelId, client.page)
 		}
 	}
 }
@@ -81,6 +85,18 @@ func storeSocketMap(bizType, bizId, channelId, page, ip string) error {
 	if _, err := c.Do("HSET", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", bizType, bizId, channelId, page), ip); err != nil {
 		fmt.Println("ERROR: Fail to store the socket map for biz type %s and biz id %s with error: %+v", bizType, bizId, err)
 		return errors.New("Fail to store the socket map")
+	}
+
+	return nil
+}
+
+func deleteSocketMap(bizType, bizId, channelId, page string) error {
+	c := redisPool.Get()
+	defer c.Close()
+
+	if _, err := c.Do("HDEL", KEY_SOCKET_LIST, fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", bizType, bizId, channelId, page)); err != nil {
+		fmt.Println("ERROR: Fail to delete the socket map for biz type %s and biz id %s with error: %+v", bizType, bizId, err)
+		return errors.New("Fail to delete the socket map")
 	}
 
 	return nil
@@ -102,21 +118,10 @@ func subscribeAdminOnlineMonitor(client *CometClient) {
 		switch v := psc.Receive().(type) {
 		case redis.Message:
 			monitorMsg := []byte(v.Data)
-			//_, isClose := <-client.send
-			//if !isClose {
 			client.send <- monitorMsg
-			//}
 		case error:
 			fmt.Println("ERROR: subscribing the admin online monitor with error: %+v", v)
 			return
 		}
-
-		/*
-			select {
-			case <-client.adminMonitorCloseChan:
-				fmt.Printf("admin monitor close")
-				return
-			}
-		*/
 	}
 }
