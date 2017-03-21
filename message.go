@@ -61,7 +61,7 @@ func HandleMessage(message map[string]interface{}) error {
 	case MSG_TYPE_KEFU_OFFLINE:
 		return HandleKefuOnlineOfflineMessage(message, STATUS_OFFLINE)
 	case MSG_TYPE_QUIT_CHAT:
-		//return HandleQuitChatMessage(message)
+		return HandleQuitChatMessage(message)
 	}
 
 	return nil
@@ -788,9 +788,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 	}
 }
 
-/*
-
-func HandleQuitChatMessage(message map[string]interface{}) {
+func HandleQuitChatMessage(message map[string]interface{}) error {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Printf("recover from the error: %+v\n", err)
@@ -830,6 +828,7 @@ func HandleQuitChatMessage(message map[string]interface{}) {
 
 	sendMsgTypeInterface := message["sendmsg_type"]
 	bizType := message["biz_type"]
+	saveMsgAPIInterface := message["savemsg_api"]
 
 	// update the thread info
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
@@ -866,6 +865,7 @@ func HandleQuitChatMessage(message map[string]interface{}) {
 		}
 
 		sendMsgTypeInterface = existThread["sendmsg_type"]
+		saveMsgAPIInterface = existThread["savemsg_api"]
 	}
 
 	if kfPushDataObj == nil {
@@ -882,11 +882,10 @@ func HandleQuitChatMessage(message map[string]interface{}) {
 		return errors.New("kf_push_data format is incorrect")
 	}
 
-	threadInfoBytes, _ := json.Marshal(message)
-
-	if _, err := c.Do("HSET", threadKey, threadId, string(threadInfoBytes)); err != nil {
-		fmt.Println("ERROR: Fail to store the thread info with error: %+v", err)
-		return errors.New("Fail to store the thread info")
+	// delete the current thread
+	if _, err := c.Do("HDEL", threadKey, threadId); err != nil {
+		fmt.Println("ERROR: Fail to delete the thread info with error: %+v", err)
+		return errors.New("Fail to delete the thread info")
 	}
 
 	// store the message
@@ -914,20 +913,79 @@ func HandleQuitChatMessage(message map[string]interface{}) {
 			index++
 		}
 	}
+
 	// push all the threads to the kf
 	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
 	threadListMsgBytes, _ := json.Marshal(threadListMsg)
-
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
-	currentMsgBytes, _ := json.Marshal(currentMsg)
 
 	socketIPMap := make(map[string]interface{})
 
 	threadListPages := kfPushData[DATA_TYPE_THREAD_LIST]
 	pushData(c, socketIPMap, threadListPages, BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
-	// handle the current message
-	currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
-	pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
+	// get all the messages for the current thread
+	msgs, err := c.Do("LRANGE", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), 0, -1)
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the messages with error: %+v", err)
+		return errors.New("Fail to get the messages")
+	}
+
+	if msgs != nil {
+		msgList := make([]map[string]interface{}, len(msgs.([]interface{})))
+		for index, msg := range msgs.([]interface{}) {
+			var _msg map[string]interface{}
+			json.Unmarshal(msg.([]byte), &_msg)
+			msgList[index] = _msg
+		}
+		msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "messages": msgList}
+		if saveMsgAPIInterface != nil {
+			saveMsgAPI, ok := saveMsgAPIInterface.(string)
+			if ok && saveMsgAPI != "" {
+				go MakeHttpRequest(POST, saveMsgAPI, msgListMessage, nil)
+			}
+		}
+	}
+
+	// Todo: delete the thread and messages
+
+	// push the current message to the counterpart
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
+	currentMsgBytes, _ := json.Marshal(currentMsg)
+
+	switch bizType {
+	case "customer":
+		currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
+		pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
+	case "kf":
+		threadInfo, ok := message["threadinfo"]
+		if !ok {
+			return nil
+		}
+
+		if reflect.TypeOf(threadInfo).String() != "map[string]interface {}" {
+			return nil
+		}
+
+		threadInfoMap := threadInfo.(map[string]interface{})
+		customerIdObj, ok := threadInfoMap["customer_id"]
+		if !ok {
+			return nil
+		}
+
+		customerId := fmt.Sprintf("%v", customerIdObj)
+		if customerId == "" {
+			return nil
+		}
+
+		// how to push the message
+		if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
+			pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
+		} else {
+			_sendMsgType, ok := sendMsgTypeInterface.(string)
+			if ok {
+				MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
+			}
+		}
+	}
+	return nil
 }
-*/

@@ -43,7 +43,7 @@ func handleMsgFromService(c *gin.Context) {
 		return
 	}
 
-	if act, ok := msg["act"]; ok && act == MSG_TYPE_CHAT {
+	if act, ok := msg["act"]; ok && act == MSG_TYPE_CHAT || act == MSG_TYPE_QUIT_CHAT {
 		msg["biz_type"] = BIZ_TYPE_CUSTOMER
 	}
 
