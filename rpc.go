@@ -16,6 +16,7 @@ type PushMessage struct {
 	BizType   string
 	BizId     string
 	ChannelId string
+	Page      string
 }
 
 func (h *PushMessageHandler) Push(message *PushMessage, reply *int) error {
@@ -25,7 +26,7 @@ func (h *PushMessageHandler) Push(message *PushMessage, reply *int) error {
 		return nil
 	}
 
-	clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s", message.BizType, message.BizId, message.ChannelId)
+	clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", message.BizType, message.BizId, message.ChannelId, message.Page)
 
 	h.hub.mutex.RLock()
 	client := h.hub.clients[clientKey]
@@ -41,7 +42,7 @@ func (h *PushMessageHandler) Push(message *PushMessage, reply *int) error {
 }
 
 // client side
-func PushRPCMessage(serverIP string, messages [][]byte, bizType string, bizId string, channelId string) {
+func PushRPCMessage(serverIP string, messages [][]byte, bizType string, bizId string, channelId, page string) {
 	client, err := rpc.DialHTTP("tcp", serverIP)
 	if err != nil {
 		fmt.Println("ERROR: could not connect to the rpc server")
@@ -54,6 +55,7 @@ func PushRPCMessage(serverIP string, messages [][]byte, bizType string, bizId st
 			BizType:   bizType,
 			BizId:     bizId,
 			ChannelId: channelId,
+			Page:      page,
 		}
 
 		var reply int

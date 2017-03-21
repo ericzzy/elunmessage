@@ -38,13 +38,14 @@ type CometClient struct {
 	bizId     string
 	bizType   string
 	channelId string
+	page      string
 
 	closeChan             chan struct{}
 	adminMonitorCloseChan chan struct{}
 	msgHandleCloseChan    chan struct{}
 }
 
-func newCometClient(_hub *CometHub, _conn *websocket.Conn, msgChanSize int, _bizId, _bizType, channelId string) *CometClient {
+func newCometClient(_hub *CometHub, _conn *websocket.Conn, msgChanSize int, _bizId, _bizType, channelId, page string) *CometClient {
 	return &CometClient{
 		hub:  _hub,
 		conn: _conn,
@@ -52,6 +53,7 @@ func newCometClient(_hub *CometHub, _conn *websocket.Conn, msgChanSize int, _biz
 		bizId:     _bizId,
 		bizType:   _bizType,
 		channelId: channelId,
+		page:      page,
 
 		send:    make(chan []byte, msgChanSize),
 		receive: make(chan []byte, msgChanSize),
@@ -78,6 +80,8 @@ func (client *CometClient) Receive() {
 		client.hub.unregister <- client
 		client.adminMonitorCloseChan <- struct{}{}
 		client.msgHandleCloseChan <- struct{}{}
+		if err := recover(); err != nil {
+		}
 	}()
 
 	client.conn.SetReadLimit(maxMessageSize)
@@ -108,6 +112,9 @@ func (client *CometClient) Send() {
 		client.hub.unregister <- client
 		client.adminMonitorCloseChan <- struct{}{}
 		client.msgHandleCloseChan <- struct{}{}
+
+		if err := recover(); err != nil {
+		}
 	}()
 
 	for {
@@ -133,7 +140,6 @@ func (client *CometClient) Send() {
 			}
 		case <-ticker.C:
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			fmt.Printf("ping....\n")
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				fmt.Printf("failed to send the socket ping message\n")
 				return
@@ -146,6 +152,7 @@ func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
 	clientId := r.URL.Query().Get("clientId")
 	clientType := r.URL.Query().Get("clientType")
 	channelId := r.URL.Query().Get("channelId")
+	page := r.URL.Query().Get("page")
 
 	if clientId == "" || clientType == "" {
 		return
@@ -157,7 +164,7 @@ func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := newCometClient(hub, conn, 1024, clientId, clientType, channelId)
+	client := newCometClient(hub, conn, 1024, clientId, clientType, channelId, page)
 	client.hub.register <- client
 
 	go client.Send()
