@@ -140,35 +140,15 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	}()
 	delete(message, FIELD_ACT)
 
-	kfId := ""
-	if _kfId, ok := message["kf_id"]; !ok {
-		return errors.New("kf_id was not provided")
-	} else {
-		kfId = fmt.Sprintf("%v", _kfId)
+	kfId, channelId, threadId, err := preGetKeyId(message)
+	if err != nil {
+		return err
 	}
-
-	channelId := ""
-	if _channelId, ok := message["channel_id"]; !ok {
-		return errors.New("channel_id was not provided")
-	} else {
-		channelId = fmt.Sprintf("%v", _channelId)
-	}
-
-	threadId := ""
-	if _threadId, ok := message["threadid"]; !ok {
-		return errors.New("threadid was not provided")
-	} else {
-		threadId = fmt.Sprintf("%v", _threadId)
-	}
-
-	if kfId == "" || channelId == "" || threadId == "" {
-		return errors.New("kf_id, channel_id or threadid was not provided")
-	}
-
 	chatMessage, ok := message["message"]
 	if !ok {
 		return errors.New("message was not provided")
 	}
+	delete(message, "message")
 
 	kfPushDataInterface := message["kf_push_data"]
 	if kfPushDataInterface == nil {
@@ -183,9 +163,6 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	}
 
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
-
-	delete(message, "message")
-
 	threadInfoBytes, _ := json.Marshal(message)
 
 	c := redisPool.Get()
@@ -203,38 +180,17 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 		return errors.New("Fail to store the customer queue message")
 	}
 
-	// handle the thread list
 	// get all the threads
-	threadlist := make([]map[string]interface{}, 0)
-	threadsInterface, err := c.Do("HGETALL", threadKey)
+	threadListMsgBytes, err := getAllThreads(c, threadKey, kfId, channelId)
 	if err != nil {
-		fmt.Printf("ERROR: Fail to get the threads list with error: %+v\n", err)
-		return errors.New("Fail to get the threads list")
+		return err
 	}
-
-	if threadsInterface != nil {
-		v := threadsInterface.([]interface{})
-		threadlist = make([]map[string]interface{}, len(v)/2)
-		index := 0
-		for i := 1; i < len(v); i += 2 {
-			var thread map[string]interface{}
-			json.Unmarshal(v[i].([]byte), &thread)
-			threadlist[index] = thread
-			index++
-		}
-	}
-	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
-	threadListMsgBytes, _ := json.Marshal(threadListMsg)
 
 	socketIPMap := make(map[string]interface{})
-
-	threadListPages := kfPushData[DATA_TYPE_THREAD_LIST]
-	pushData(c, socketIPMap, threadListPages, BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
 	// handle the current thread
-	currentThreadPages := kfPushData[DATA_TYPE_CURRENT_THREAD]
-	pushData(c, socketIPMap, currentThreadPages, BIZ_TYPE_KF, kfId, "", threadInfoBytes)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", threadInfoBytes)
 
 	// broadcat the current thread info to admin
 	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(threadInfoBytes)); err != nil {
@@ -253,99 +209,26 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	}()
 	delete(message, FIELD_ACT)
 
-	kfId := ""
-	if _kfId, ok := message["kf_id"]; !ok {
-		return errors.New("kf_id was not provided")
-	} else {
-		kfId = fmt.Sprintf("%v", _kfId)
+	kfId, channelId, threadId, err := preGetKeyId(message)
+	if err != nil {
+		return err
 	}
-
-	channelId := ""
-	if _channelId, ok := message["channel_id"]; !ok {
-		return errors.New("channel_id was not provided")
-	} else {
-		channelId = fmt.Sprintf("%v", _channelId)
-	}
-
-	threadId := ""
-	if _threadId, ok := message["threadid"]; !ok {
-		return errors.New("threadid was not provided")
-	} else {
-		threadId = fmt.Sprintf("%v", _threadId)
-	}
-
-	if kfId == "" || channelId == "" || threadId == "" {
-		return errors.New("kf_id, channel_id or threadid was not provided")
-	}
-
 	chatMessage, ok := message["message"]
 	if !ok {
 		return errors.New("message was not provided")
 	}
-
-	sendMsgTypeInterface := message["sendmsg_type"]
-	saveMsgAPIInterface := message["savemsg_api"]
-
-	// update the thread info
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
-
 	delete(message, "message")
-
-	var kfPushDataObj interface{}
 
 	c := redisPool.Get()
 	defer c.Close()
-	// merge the thread info
-	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
+
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
+	sendMsgTypeInterface, _, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
-		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
-		return errors.New("Fail to get the thread info")
-	}
-
-	if existThreadInfo != nil {
-		var existThread map[string]interface{}
-		if err := json.Unmarshal(existThreadInfo.([]byte), &existThread); err != nil {
-			fmt.Printf("ERROR: could not parse the exsiting thread info\n")
-			return errors.New("Could not parse the existing thread info")
-		}
-
-		customer, ok := existThread["customer"]
-		if ok {
-			message["customer"] = customer
-		}
-
-		kfPushDataObj = existThread[KF_PUSH_DATA]
-		if kfPushDataObj != nil {
-			message[KF_PUSH_DATA] = kfPushDataObj
-		}
-
-		sendMsgTypeInterface = existThread["sendmsg_type"]
-		if sendMsgTypeInterface != nil {
-			message["sendmsg_type"] = sendMsgTypeInterface
-		}
-
-		saveMsgAPIInterface = existThread["savemsg_api"]
-		if saveMsgAPIInterface != nil {
-			message["savemsg_api"] = sendMsgTypeInterface
-		}
-	}
-
-	if kfPushDataObj == nil {
-		kfPushDataObj = message[KF_PUSH_DATA]
-		if kfPushDataObj == nil {
-			return errors.New("kf_push_data was not provided")
-		}
-	}
-
-	var kfPushData map[string][]string
-	kfPushDataBytes, _ := json.Marshal(kfPushDataObj)
-	if err := json.Unmarshal(kfPushDataBytes, &kfPushData); err != nil {
-		fmt.Println("ERROR: kf_push_data format is incorrect")
-		return errors.New("kf_push_data format is incorrect")
+		return err
 	}
 
 	threadInfoBytes, _ := json.Marshal(message)
-
 	if _, err := c.Do("HSET", threadKey, threadId, string(threadInfoBytes)); err != nil {
 		fmt.Println("ERROR: Fail to store the thread info with error: %+v", err)
 		return errors.New("Fail to store the thread info")
@@ -359,80 +242,28 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	}
 
 	// get all the threads
-	threadlist := make([]map[string]interface{}, 0)
-	threadsInterface, err := c.Do("HGETALL", threadKey)
+	threadListMsgBytes, err := getAllThreads(c, threadKey, kfId, channelId)
 	if err != nil {
-		fmt.Println("ERROR: Fail to get the threads list with error: %+v", err)
-		return errors.New("Fail to get the threads list")
+		return err
 	}
-	if threadsInterface != nil {
-		v := threadsInterface.([]interface{})
-		threadlist = make([]map[string]interface{}, len(v)/2)
-		index := 0
-		for i := 1; i < len(v); i += 2 {
-			var thread map[string]interface{}
-			json.Unmarshal(v[i].([]byte), &thread)
-			threadlist[index] = thread
-			index++
-		}
-	}
-	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
-	threadListMsgBytes, _ := json.Marshal(threadListMsg)
+	socketIPMap := make(map[string]interface{})
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
+
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", threadInfoBytes)
 
 	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
-
-	socketIPMap := make(map[string]interface{})
-
-	threadListPages := kfPushData[DATA_TYPE_THREAD_LIST]
-	pushData(c, socketIPMap, threadListPages, BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
-
-	// handle the current thread
-	currentThreadPages := kfPushData[DATA_TYPE_CURRENT_THREAD]
-	pushData(c, socketIPMap, currentThreadPages, BIZ_TYPE_KF, kfId, "", threadInfoBytes)
-
-	// handle the current message
-	currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
-	pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
 	// broadcat the current thread info to admin
 	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(threadInfoBytes)); err != nil {
 		fmt.Println("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v", err)
-		return nil
+		return errors.New("Faile to publish the current thread info to admin monitor")
 	}
 
 	// send or push the message via api or socket
 	// get the customer id
-	threadInfo, ok := message["threadinfo"]
-	if !ok {
-		return nil
-	}
-
-	if reflect.TypeOf(threadInfo).String() != "map[string]interface {}" {
-		return nil
-	}
-
-	threadInfoMap := threadInfo.(map[string]interface{})
-	customerIdObj, ok := threadInfoMap["customer_id"]
-	if !ok {
-		return nil
-	}
-
-	customerId := fmt.Sprintf("%v", customerIdObj)
-	if customerId == "" {
-		return nil
-	}
-
-	if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
-		pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
-	} else {
-		_sendMsgType, ok := sendMsgTypeInterface.(string)
-		if ok {
-			MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
-		}
-	}
-
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
 	return nil
 }
 
@@ -444,101 +275,29 @@ func HandleChatMessage(message map[string]interface{}) error {
 	}()
 	delete(message, FIELD_ACT)
 
-	kfId := ""
-	if _kfId, ok := message["kf_id"]; !ok {
-		return errors.New("kf_id was not provided")
-	} else {
-		kfId = fmt.Sprintf("%v", _kfId)
+	kfId, channelId, threadId, err := preGetKeyId(message)
+	if err != nil {
+		return err
 	}
-
-	channelId := ""
-	if _channelId, ok := message["channel_id"]; !ok {
-		return errors.New("channel_id was not provided")
-	} else {
-		channelId = fmt.Sprintf("%v", _channelId)
-	}
-
-	threadId := ""
-	if _threadId, ok := message["threadid"]; !ok {
-		return errors.New("threadid was not provided")
-	} else {
-		threadId = fmt.Sprintf("%v", _threadId)
-	}
-
-	if kfId == "" || channelId == "" || threadId == "" {
-		return errors.New("kf_id, channel_id or threadid was not provided")
-	}
-
 	chatMessage, ok := message["message"]
 	if !ok {
 		return errors.New("message was not provided")
 	}
-
-	sendMsgTypeInterface := message["sendmsg_type"]
-	saveMsgAPIInterface := message["savemsg_api"]
 	bizType := message["biz_type"]
-
-	// update the thread info
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
-
 	delete(message, "message")
 	delete(message, "biz_type")
 
-	var kfPushDataObj interface{}
-
 	c := redisPool.Get()
 	defer c.Close()
-	// merge the thread info
-	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
+
+	// update the thread info
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
+	sendMsgTypeInterface, _, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
-		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
-		return errors.New("Fail to get the thread info")
-	}
-
-	if existThreadInfo != nil {
-		var existThread map[string]interface{}
-		if err := json.Unmarshal(existThreadInfo.([]byte), &existThread); err != nil {
-			fmt.Printf("ERROR: could not parse the exsiting thread info\n")
-			return errors.New("Could not parse the existing thread info")
-		}
-
-		customer, ok := existThread["customer"]
-		if ok {
-			message["customer"] = customer
-		}
-
-		kfPushDataObj = existThread[KF_PUSH_DATA]
-		if kfPushDataObj != nil {
-			message[KF_PUSH_DATA] = kfPushDataObj
-		}
-
-		sendMsgTypeInterface = existThread["sendmsg_type"]
-		if sendMsgTypeInterface != nil {
-			message["sendmsg_type"] = sendMsgTypeInterface
-		}
-
-		saveMsgAPIInterface = existThread["savemsg_api"]
-		if saveMsgAPIInterface != nil {
-			message["savemsg_api"] = saveMsgAPIInterface
-		}
-	}
-
-	if kfPushDataObj == nil {
-		kfPushDataObj = message[KF_PUSH_DATA]
-		if kfPushDataObj == nil {
-			return errors.New("kf_push_data was not provided")
-		}
-	}
-
-	var kfPushData map[string][]string
-	kfPushDataBytes, _ := json.Marshal(kfPushDataObj)
-	if err := json.Unmarshal(kfPushDataBytes, &kfPushData); err != nil {
-		fmt.Println("ERROR: kf_push_data format is incorrect")
-		return errors.New("kf_push_data format is incorrect")
+		return err
 	}
 
 	threadInfoBytes, _ := json.Marshal(message)
-
 	if _, err := c.Do("HSET", threadKey, threadId, string(threadInfoBytes)); err != nil {
 		fmt.Println("ERROR: Fail to store the thread info with error: %+v", err)
 		return errors.New("Fail to store the thread info")
@@ -552,73 +311,21 @@ func HandleChatMessage(message map[string]interface{}) error {
 	}
 
 	// get all the threads
-	threadlist := make([]map[string]interface{}, 0)
-	threadsInterface, err := c.Do("HGETALL", threadKey)
+	threadListMsgBytes, err := getAllThreads(c, threadKey, kfId, channelId)
 	if err != nil {
-		fmt.Println("ERROR: Fail to get the threads list with error: %+v", err)
-		return errors.New("Fail to get the threads list")
+		return err
 	}
-	if threadsInterface != nil {
-		v := threadsInterface.([]interface{})
-		threadlist = make([]map[string]interface{}, len(v)/2)
-		index := 0
-		for i := 1; i < len(v); i += 2 {
-			var thread map[string]interface{}
-			json.Unmarshal(v[i].([]byte), &thread)
-			threadlist[index] = thread
-			index++
-		}
-	}
-	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
-	threadListMsgBytes, _ := json.Marshal(threadListMsg)
+	socketIPMap := make(map[string]interface{})
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
 	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
-
-	socketIPMap := make(map[string]interface{})
-
-	threadListPages := kfPushData[DATA_TYPE_THREAD_LIST]
-	pushData(c, socketIPMap, threadListPages, BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
-
-	// handle the current message
-	currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
-	pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
 	if bizType == BIZ_TYPE_KF {
 		// send or push the message via api or socket
 		// get the customer id
-		threadInfo, ok := message["threadinfo"]
-		if !ok {
-			return nil
-		}
-
-		if reflect.TypeOf(threadInfo).String() != "map[string]interface {}" {
-			return nil
-		}
-
-		threadInfoMap := threadInfo.(map[string]interface{})
-		customerIdObj, ok := threadInfoMap["customer_id"]
-		if !ok {
-			return nil
-		}
-		customerId := fmt.Sprintf("%v", customerIdObj)
-		if customerId == "" {
-			return nil
-		}
-		fmt.Println("customer id is ", customerId)
-		fmt.Println("send msg type is ", sendMsgTypeInterface)
-
-		if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
-			pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
-		} else {
-			fmt.Println("send msg via api")
-			_sendMsgType, ok := sendMsgTypeInterface.(string)
-			if ok {
-				fmt.Printf("msg send api is %s\n", _sendMsgType)
-				MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
-			}
-		}
+		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
 	}
 	return nil
 }
@@ -632,115 +339,33 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 
 	delete(message, FIELD_ACT)
 
-	kfId := ""
-	if _kfId, ok := message["kf_id"]; !ok {
-		return errors.New("kf_id was not provided")
-	} else {
-		kfId = fmt.Sprintf("%v", _kfId)
+	kfId, channelId, threadId, err := preGetKeyId(message)
+	if err != nil {
+		return err
 	}
-
-	channelId := ""
-	if _channelId, ok := message["channel_id"]; !ok {
-		return errors.New("channel_id was not provided")
-	} else {
-		channelId = fmt.Sprintf("%v", _channelId)
-	}
-
-	threadId := ""
-	if _threadId, ok := message["threadid"]; !ok {
-		return errors.New("threadid was not provided")
-	} else {
-		threadId = fmt.Sprintf("%v", _threadId)
-	}
-
-	if kfId == "" || channelId == "" || threadId == "" {
-		return errors.New("kf_id, channel_id or threadid was not provided")
-	}
-
-	// update the thread info
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
-
-	var kfPushDataObj interface{}
 
 	c := redisPool.Get()
 	defer c.Close()
-	// merge the thread info
-	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
+
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
+	_, _, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
-		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
-		return errors.New("Fail to get the thread info")
-	}
-
-	if existThreadInfo != nil {
-		var existThread map[string]interface{}
-		if err := json.Unmarshal(existThreadInfo.([]byte), &existThread); err != nil {
-			fmt.Printf("ERROR: could not parse the exsiting thread info\n")
-			return errors.New("Could not parse the existing thread info")
-		}
-
-		customer, ok := existThread["customer"]
-		if ok {
-			message["customer"] = customer
-		}
-
-		kfPushDataObj = existThread[KF_PUSH_DATA]
-		if kfPushDataObj != nil {
-			message[KF_PUSH_DATA] = kfPushDataObj
-		}
-
-		sendMsgTypeInterface := existThread["sendmsg_type"]
-		if sendMsgTypeInterface != nil {
-			message["sendmsg_type"] = sendMsgTypeInterface
-		}
-
-		saveMsgAPIInterface := existThread["savemsg_api"]
-		if saveMsgAPIInterface != nil {
-			message["savemsg_api"] = saveMsgAPIInterface
-		}
-	}
-
-	if kfPushDataObj == nil {
-		kfPushDataObj = message[KF_PUSH_DATA]
-		if kfPushDataObj == nil {
-			return errors.New("kf_push_data was not provided")
-		}
-	}
-
-	var kfPushData map[string][]string
-	kfPushDataBytes, _ := json.Marshal(kfPushDataObj)
-	if err := json.Unmarshal(kfPushDataBytes, &kfPushData); err != nil {
-		fmt.Println("ERROR: kf_push_data format is incorrect")
-		return errors.New("kf_push_data format is incorrect")
+		return err
 	}
 
 	threadInfoBytes, _ := json.Marshal(message)
-
 	if _, err := c.Do("HSET", threadKey, threadId, string(threadInfoBytes)); err != nil {
 		fmt.Println("ERROR: Fail to store the thread info with error: %+v", err)
 		return errors.New("Fail to store the thread info")
 	}
-	// get all the threads
-	threadlist := make([]map[string]interface{}, 0)
-	threadsInterface, err := c.Do("HGETALL", threadKey)
+
+	threadListMsgBytes, err := getAllThreads(c, threadKey, kfId, channelId)
 	if err != nil {
-		fmt.Println("ERROR: Fail to get the threads list with error: %+v", err)
-		return errors.New("Fail to get the threads list")
-	}
-	if threadsInterface != nil {
-		v := threadsInterface.([]interface{})
-		threadlist = make([]map[string]interface{}, len(v)/2)
-		index := 0
-		for i := 1; i < len(v); i += 2 {
-			var thread map[string]interface{}
-			json.Unmarshal(v[i].([]byte), &thread)
-			threadlist[index] = thread
-			index++
-		}
+		return err
 	}
 
-	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
-	threadListMsgBytes, _ := json.Marshal(threadListMsg)
+	socketIPMap := make(map[string]interface{})
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
 	// get all the messages for the current thread
 	msgs, err := c.Do("LRANGE", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), 0, -1)
@@ -763,16 +388,214 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 	msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "messages": msgList}
 	msgListMessageBytes, _ := json.Marshal(msgListMessage)
 
-	socketIPMap := make(map[string]interface{})
-
-	threadListPages := kfPushData[DATA_TYPE_THREAD_LIST]
-	pushData(c, socketIPMap, threadListPages, BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
-
-	// handle the current message
-	allMsgPages := kfPushData[DATA_TYPE_ALL_MSG]
-	pushData(c, socketIPMap, allMsgPages, BIZ_TYPE_KF, kfId, "", msgListMessageBytes)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_ALL_MSG], BIZ_TYPE_KF, kfId, "", msgListMessageBytes)
 
 	return nil
+}
+
+func HandleQuitChatMessage(message map[string]interface{}) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("recover from the error: %+v\n", err)
+		}
+	}()
+	delete(message, FIELD_ACT)
+
+	kfId, channelId, threadId, err := preGetKeyId(message)
+	if err != nil {
+		return err
+	}
+
+	chatMessage, ok := message["message"]
+	if !ok {
+		return errors.New("message was not provided")
+	}
+	bizType := message["biz_type"]
+	delete(message, "message")
+	delete(message, "biz_type")
+
+	c := redisPool.Get()
+	defer c.Close()
+
+	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
+	sendMsgTypeInterface, saveMsgAPIInterface, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
+	if err != nil {
+		return err
+	}
+
+	// delete the current thread
+	if _, err := c.Do("HDEL", threadKey, threadId); err != nil {
+		fmt.Println("ERROR: Fail to delete the thread info with error: %+v", err)
+		return errors.New("Fail to delete the thread info")
+	}
+
+	// store the message
+	chatMsgBytes, _ := json.Marshal(chatMessage)
+	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), string(chatMsgBytes)); err != nil {
+		fmt.Println("Warn: Fail to store the customer queue message with error: %+v", err)
+		return errors.New("Fail to store the customer queue message")
+	}
+
+	threadListMsgBytes, err := getAllThreads(c, threadKey, kfId, channelId)
+	if err != nil {
+		return err
+	}
+
+	socketIPMap := make(map[string]interface{})
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
+
+	// get all the messages for the current thread
+	msgs, err := c.Do("LRANGE", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), 0, -1)
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the messages with error: %+v", err)
+		return errors.New("Fail to get the messages")
+	}
+
+	if msgs != nil {
+		msgList := make([]map[string]interface{}, len(msgs.([]interface{})))
+		for index, msg := range msgs.([]interface{}) {
+			var _msg map[string]interface{}
+			json.Unmarshal(msg.([]byte), &_msg)
+			msgList[index] = _msg
+		}
+		msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "messages": msgList}
+		if saveMsgAPIInterface != nil {
+			saveMsgAPI, ok := saveMsgAPIInterface.(string)
+			if ok && saveMsgAPI != "" {
+				go MakeHttpRequest(POST, saveMsgAPI, msgListMessage, nil)
+			}
+		}
+	}
+
+	// Todo: delete the thread and messages
+
+	// push the current message to the counterpart
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
+	currentMsgBytes, _ := json.Marshal(currentMsg)
+
+	switch bizType {
+	case "customer":
+		currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
+		pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
+	case "kf":
+		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+	}
+	return nil
+}
+
+func preGetKeyId(message map[string]interface{}) (kfId, channelId, threadId string, retErr error) {
+	if _kfId, ok := message["kf_id"]; !ok {
+		retErr = errors.New("kf_id was not provided")
+		return
+	} else {
+		kfId = fmt.Sprintf("%v", _kfId)
+	}
+
+	if _channelId, ok := message["channel_id"]; !ok {
+		retErr = errors.New("channel_id was not provided")
+		return
+	} else {
+		channelId = fmt.Sprintf("%v", _channelId)
+	}
+
+	if _threadId, ok := message["threadid"]; !ok {
+		retErr = errors.New("threadid was not provided")
+		return
+	} else {
+		threadId = fmt.Sprintf("%v", _threadId)
+	}
+
+	if kfId == "" || channelId == "" || threadId == "" {
+		retErr = errors.New("kf_id, channel_id or threadid was not provided")
+		return
+	}
+
+	return
+}
+
+func preGetThreadConfigAndMerge(c redis.Conn, message map[string]interface{}, threadKey, threadId string) (sendMsgTypeInterface, saveMsgAPIInterface interface{}, kfPushData map[string][]string, retErr error) {
+	sendMsgTypeInterface = message["sendmsg_type"]
+	saveMsgAPIInterface = message["savemsg_api"]
+
+	// merge the thread info
+	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
+		retErr = errors.New("Fail to get the thread info")
+		return
+	}
+
+	var kfPushDataObj interface{}
+	if existThreadInfo != nil {
+		var existThread map[string]interface{}
+		if err := json.Unmarshal(existThreadInfo.([]byte), &existThread); err != nil {
+			fmt.Printf("ERROR: could not parse the exsiting thread info\n")
+			retErr = errors.New("Could not parse the existing thread info")
+			return
+		}
+
+		customer, ok := existThread["customer"]
+		if ok {
+			message["customer"] = customer
+		}
+
+		kfPushDataObj = existThread[KF_PUSH_DATA]
+		if kfPushDataObj != nil {
+			message[KF_PUSH_DATA] = kfPushDataObj
+		}
+
+		sendMsgTypeInterface = existThread["sendmsg_type"]
+		if sendMsgTypeInterface != nil {
+			message["sendmsg_type"] = sendMsgTypeInterface
+		}
+		saveMsgAPIInterface = existThread["savemsg_api"]
+		if saveMsgAPIInterface != nil {
+			message["savemsg_api"] = saveMsgAPIInterface
+		}
+	}
+
+	if kfPushDataObj == nil {
+		kfPushDataObj = message[KF_PUSH_DATA]
+		if kfPushDataObj == nil {
+			retErr = errors.New("kf_push_data was not provided")
+			return
+		}
+	}
+
+	kfPushDataBytes, _ := json.Marshal(kfPushDataObj)
+	if err := json.Unmarshal(kfPushDataBytes, &kfPushData); err != nil {
+		fmt.Println("ERROR: kf_push_data format is incorrect")
+		retErr = errors.New("kf_push_data format is incorrect")
+		return
+	}
+
+	return
+}
+
+func getAllThreads(c redis.Conn, threadKey, kfId, channelId string) ([]byte, error) {
+	// get all the threads
+	threadlist := make([]map[string]interface{}, 0)
+	threadsInterface, err := c.Do("HGETALL", threadKey)
+	if err != nil {
+		fmt.Println("ERROR: Fail to get the threads list with error: %+v", err)
+		return nil, errors.New("Fail to get the threads list")
+	}
+	if threadsInterface != nil {
+		v := threadsInterface.([]interface{})
+		threadlist = make([]map[string]interface{}, len(v)/2)
+		index := 0
+		for i := 1; i < len(v); i += 2 {
+			var thread map[string]interface{}
+			json.Unmarshal(v[i].([]byte), &thread)
+			threadlist[index] = thread
+			index++
+		}
+	}
+
+	// push all the threads to the kf
+	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
+	threadListMsgBytes, _ := json.Marshal(threadListMsg)
+	return threadListMsgBytes, nil
 }
 
 func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, bizType, bizId, channelId string, message []byte) {
@@ -819,210 +642,34 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 	}
 }
 
-func HandleQuitChatMessage(message map[string]interface{}) error {
-	defer func() {
-		if err := recover(); err != nil {
-			fmt.Printf("recover from the error: %+v\n", err)
-		}
-	}()
-	delete(message, FIELD_ACT)
-
-	kfId := ""
-	if _kfId, ok := message["kf_id"]; !ok {
-		return errors.New("kf_id was not provided")
-	} else {
-		kfId = fmt.Sprintf("%v", _kfId)
-	}
-
-	channelId := ""
-	if _channelId, ok := message["channel_id"]; !ok {
-		return errors.New("channel_id was not provided")
-	} else {
-		channelId = fmt.Sprintf("%v", _channelId)
-	}
-
-	threadId := ""
-	if _threadId, ok := message["threadid"]; !ok {
-		return errors.New("threadid was not provided")
-	} else {
-		threadId = fmt.Sprintf("%v", _threadId)
-	}
-
-	if kfId == "" || channelId == "" || threadId == "" {
-		return errors.New("kf_id, channel_id or threadid was not provided")
-	}
-
-	chatMessage, ok := message["message"]
+func pushCurrentMsgToCustomer(c redis.Conn, message map[string]interface{}, sendMsgTypeInterface interface{}, channelId string, currentMsgBytes []byte, currentMsg map[string]interface{}, socketIPMap map[string]interface{}) {
+	threadInfo, ok := message["threadinfo"]
 	if !ok {
-		return errors.New("message was not provided")
+		return
 	}
 
-	sendMsgTypeInterface := message["sendmsg_type"]
-	bizType := message["biz_type"]
-	saveMsgAPIInterface := message["savemsg_api"]
-
-	// update the thread info
-	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
-
-	delete(message, "message")
-	delete(message, "biz_type")
-
-	var kfPushDataObj interface{}
-
-	c := redisPool.Get()
-	defer c.Close()
-	// merge the thread info
-	existThreadInfo, err := c.Do("HGET", threadKey, threadId)
-	if err != nil {
-		fmt.Printf("ERROR: Fail to get the thread info with error: %+v\n", err)
-		return errors.New("Fail to get the thread info")
+	if reflect.TypeOf(threadInfo).String() != "map[string]interface {}" {
+		return
 	}
 
-	if existThreadInfo != nil {
-		var existThread map[string]interface{}
-		if err := json.Unmarshal(existThreadInfo.([]byte), &existThread); err != nil {
-			fmt.Printf("ERROR: could not parse the exsiting thread info\n")
-			return errors.New("Could not parse the existing thread info")
-		}
+	threadInfoMap := threadInfo.(map[string]interface{})
+	customerIdObj, ok := threadInfoMap["customer_id"]
+	if !ok {
+		return
+	}
 
-		customer, ok := existThread["customer"]
+	customerId := fmt.Sprintf("%v", customerIdObj)
+	if customerId == "" {
+		return
+	}
+
+	// how to push the message
+	if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
+		pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
+	} else {
+		_sendMsgType, ok := sendMsgTypeInterface.(string)
 		if ok {
-			message["customer"] = customer
-		}
-
-		kfPushDataObj = existThread[KF_PUSH_DATA]
-		if kfPushDataObj != nil {
-			message[KF_PUSH_DATA] = kfPushDataObj
-		}
-
-		sendMsgTypeInterface = existThread["sendmsg_type"]
-		if sendMsgTypeInterface != nil {
-			message["sendmsg_type"] = sendMsgTypeInterface
-		}
-		saveMsgAPIInterface = existThread["savemsg_api"]
-		if saveMsgAPIInterface != nil {
-			message["savemsg_api"] = saveMsgAPIInterface
+			MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
 		}
 	}
-
-	if kfPushDataObj == nil {
-		kfPushDataObj = message[KF_PUSH_DATA]
-		if kfPushDataObj == nil {
-			return errors.New("kf_push_data was not provided")
-		}
-	}
-
-	var kfPushData map[string][]string
-	kfPushDataBytes, _ := json.Marshal(kfPushDataObj)
-	if err := json.Unmarshal(kfPushDataBytes, &kfPushData); err != nil {
-		fmt.Println("ERROR: kf_push_data format is incorrect")
-		return errors.New("kf_push_data format is incorrect")
-	}
-
-	// delete the current thread
-	if _, err := c.Do("HDEL", threadKey, threadId); err != nil {
-		fmt.Println("ERROR: Fail to delete the thread info with error: %+v", err)
-		return errors.New("Fail to delete the thread info")
-	}
-
-	// store the message
-	chatMsgBytes, _ := json.Marshal(chatMessage)
-	if _, err := c.Do("RPUSH", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), string(chatMsgBytes)); err != nil {
-		fmt.Println("Warn: Fail to store the customer queue message with error: %+v", err)
-		return errors.New("Fail to store the customer queue message")
-	}
-
-	// get all the threads
-	threadlist := make([]map[string]interface{}, 0)
-	threadsInterface, err := c.Do("HGETALL", threadKey)
-	if err != nil {
-		fmt.Println("ERROR: Fail to get the threads list with error: %+v", err)
-		return errors.New("Fail to get the threads list")
-	}
-	if threadsInterface != nil {
-		v := threadsInterface.([]interface{})
-		threadlist = make([]map[string]interface{}, len(v)/2)
-		index := 0
-		for i := 1; i < len(v); i += 2 {
-			var thread map[string]interface{}
-			json.Unmarshal(v[i].([]byte), &thread)
-			threadlist[index] = thread
-			index++
-		}
-	}
-
-	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
-	threadListMsgBytes, _ := json.Marshal(threadListMsg)
-
-	socketIPMap := make(map[string]interface{})
-
-	threadListPages := kfPushData[DATA_TYPE_THREAD_LIST]
-	pushData(c, socketIPMap, threadListPages, BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
-
-	// get all the messages for the current thread
-	msgs, err := c.Do("LRANGE", fmt.Sprintf("messages:kfid:%s:channelid:%s:threadid:%s", kfId, channelId, threadId), 0, -1)
-	if err != nil {
-		fmt.Printf("ERROR: Fail to get the messages with error: %+v", err)
-		return errors.New("Fail to get the messages")
-	}
-
-	if msgs != nil {
-		msgList := make([]map[string]interface{}, len(msgs.([]interface{})))
-		for index, msg := range msgs.([]interface{}) {
-			var _msg map[string]interface{}
-			json.Unmarshal(msg.([]byte), &_msg)
-			msgList[index] = _msg
-		}
-		msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "messages": msgList}
-		if saveMsgAPIInterface != nil {
-			saveMsgAPI, ok := saveMsgAPIInterface.(string)
-			if ok && saveMsgAPI != "" {
-				go MakeHttpRequest(POST, saveMsgAPI, msgListMessage, nil)
-			}
-		}
-	}
-
-	// Todo: delete the thread and messages
-
-	// push the current message to the counterpart
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
-	currentMsgBytes, _ := json.Marshal(currentMsg)
-
-	switch bizType {
-	case "customer":
-		currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
-		pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
-	case "kf":
-		threadInfo, ok := message["threadinfo"]
-		if !ok {
-			return nil
-		}
-
-		if reflect.TypeOf(threadInfo).String() != "map[string]interface {}" {
-			return nil
-		}
-
-		threadInfoMap := threadInfo.(map[string]interface{})
-		customerIdObj, ok := threadInfoMap["customer_id"]
-		if !ok {
-			return nil
-		}
-
-		customerId := fmt.Sprintf("%v", customerIdObj)
-		if customerId == "" {
-			return nil
-		}
-
-		// how to push the message
-		if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
-			pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
-		} else {
-			_sendMsgType, ok := sendMsgTypeInterface.(string)
-			if ok {
-				MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
-			}
-		}
-	}
-	return nil
 }
