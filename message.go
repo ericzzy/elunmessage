@@ -284,6 +284,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	}
 
 	sendMsgTypeInterface := message["sendmsg_type"]
+	saveMsgAPIInterface := message["savemsg_api"]
 
 	// update the thread info
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
@@ -319,6 +320,14 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 		}
 
 		sendMsgTypeInterface = existThread["sendmsg_type"]
+		if sendMsgTypeInterface != nil {
+			message["sendmsg_type"] = sendMsgTypeInterface
+		}
+
+		saveMsgAPIInterface = existThread["savemsg_api"]
+		if saveMsgAPIInterface != nil {
+			message["savemsg_api"] = sendMsgTypeInterface
+		}
 	}
 
 	if kfPushDataObj == nil {
@@ -466,6 +475,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 	}
 
 	sendMsgTypeInterface := message["sendmsg_type"]
+	saveMsgAPIInterface := message["savemsg_api"]
 	bizType := message["biz_type"]
 
 	// update the thread info
@@ -503,6 +513,14 @@ func HandleChatMessage(message map[string]interface{}) error {
 		}
 
 		sendMsgTypeInterface = existThread["sendmsg_type"]
+		if sendMsgTypeInterface != nil {
+			message["sendmsg_type"] = sendMsgTypeInterface
+		}
+
+		saveMsgAPIInterface = existThread["savemsg_api"]
+		if saveMsgAPIInterface != nil {
+			message["savemsg_api"] = saveMsgAPIInterface
+		}
 	}
 
 	if kfPushDataObj == nil {
@@ -668,6 +686,16 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 		kfPushDataObj = existThread[KF_PUSH_DATA]
 		if kfPushDataObj != nil {
 			message[KF_PUSH_DATA] = kfPushDataObj
+		}
+
+		sendMsgTypeInterface := existThread["sendmsg_type"]
+		if sendMsgTypeInterface != nil {
+			message["sendmsg_type"] = sendMsgTypeInterface
+		}
+
+		saveMsgAPIInterface := existThread["savemsg_api"]
+		if saveMsgAPIInterface != nil {
+			message["savemsg_api"] = saveMsgAPIInterface
 		}
 	}
 
@@ -868,7 +896,13 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 		}
 
 		sendMsgTypeInterface = existThread["sendmsg_type"]
+		if sendMsgTypeInterface != nil {
+			message["sendmsg_type"] = sendMsgTypeInterface
+		}
 		saveMsgAPIInterface = existThread["savemsg_api"]
+		if saveMsgAPIInterface != nil {
+			message["savemsg_api"] = saveMsgAPIInterface
+		}
 	}
 
 	if kfPushDataObj == nil {
