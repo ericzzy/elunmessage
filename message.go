@@ -753,7 +753,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 	}
 
 	for _, page := range pages {
-		clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:page:%s", bizType, bizId, page)
+		clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", bizType, bizId, channelId, page)
 		socketIPVal, ok := socketIPMap[clientKey]
 		if !ok {
 			// get the kf's ip
