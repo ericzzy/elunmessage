@@ -589,6 +589,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 			return nil
 		}
 		fmt.Println("customer id is ", customerId)
+		fmt.Println("send msg type is ", sendMsgTypeInterface)
 
 		if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
 			pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
