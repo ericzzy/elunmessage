@@ -124,7 +124,6 @@ func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status strin
 	kfListPublishBytes, _ := json.Marshal(kfListPublish)
 
 	// publish the kf list to admin monitor
-	fmt.Printf("publish the online/offline kf %s to admin \n", string(kfListPublishBytes))
 	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(kfListPublishBytes)); err != nil {
 		fmt.Println("ERROR: Fail to publish the kf list with error: %+v", err)
 		return nil
@@ -589,12 +588,15 @@ func HandleChatMessage(message map[string]interface{}) error {
 		if customerId == "" {
 			return nil
 		}
+		fmt.Println("customer id is ", customerId)
 
 		if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
 			pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
 		} else {
+			fmt.Println("send msg via api")
 			_sendMsgType, ok := sendMsgTypeInterface.(string)
 			if ok {
+				fmt.Printf("msg send api is %s\n", _sendMsgType)
 				MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
 			}
 		}

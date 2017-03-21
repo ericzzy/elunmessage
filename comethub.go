@@ -101,7 +101,6 @@ func subscribeAdminOnlineMonitor(client *CometClient) {
 	for {
 		switch v := psc.Receive().(type) {
 		case redis.Message:
-			fmt.Printf("Receive message: %s\n", string([]byte(v.Data)))
 			monitorMsg := []byte(v.Data)
 			//_, isClose := <-client.send
 			//if !isClose {

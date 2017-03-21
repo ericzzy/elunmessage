@@ -97,7 +97,6 @@ func (client *CometClient) Receive() {
 			break
 		}
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		fmt.Printf("receving message: %s", string(message))
 		client.receive <- message
 	}
 }
@@ -126,8 +125,6 @@ func (client *CometClient) Send() {
 				client.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
-			fmt.Printf("Push message to socket client: %s\n", string(message))
 
 			w, err := client.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
