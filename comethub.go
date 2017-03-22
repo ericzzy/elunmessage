@@ -41,7 +41,9 @@ func (h *CometHub) Run() {
 			}
 
 			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", client.bizType, client.bizId, client.channelId, client.page)
+			h.mutex.Lock()
 			h.clients[clientKey] = client
+			h.mutex.Unlock()
 
 			if client.bizType == BIZ_TYPE_ADMIN {
 				fmt.Printf("listen to the admin monitor")
@@ -66,11 +68,13 @@ func (h *CometHub) Run() {
 			}(client)
 		case client := <-h.unregister:
 			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", client.bizType, client.bizId, client.channelId, client.page)
+			h.mutex.Lock()
 			if _, ok := h.clients[clientKey]; ok {
 				delete(h.clients, clientKey)
 				close(client.send)
 				close(client.receive)
 			}
+			h.mutex.Unlock()
 
 			// delete the socket map in the redis
 			deleteSocketMap(client.bizType, client.bizId, client.channelId, client.page)
@@ -118,7 +122,11 @@ func subscribeAdminOnlineMonitor(client *CometClient) {
 		switch v := psc.Receive().(type) {
 		case redis.Message:
 			monitorMsg := []byte(v.Data)
-			client.send <- monitorMsg
+			select {
+			case client.send <- monitorMsg:
+			default:
+				return
+			}
 		case error:
 			fmt.Println("ERROR: subscribing the admin online monitor with error: %+v", v)
 			return

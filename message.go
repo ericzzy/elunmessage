@@ -633,6 +633,9 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 			cometHub.mutex.RUnlock()
 			if cometClient != nil {
 				go func() {
+					defer func() {
+						recover()
+					}()
 					cometClient.send <- message
 				}()
 			}
