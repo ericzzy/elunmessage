@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 
 	"github.com/garyburd/redigo/redis"
 )
@@ -14,6 +15,7 @@ const (
 	MSG_TYPE_CUSTOMER_QUEUE  = "排队"
 	MSG_TYPE_CUSTOMER_IN     = "客户进入"
 	MSG_TYPE_CUSTOMER_LIST   = "客户列表"
+	MSG_TYPE_MESSAGE_LIST    = "消息列表"
 	MSG_TYPE_KF_LIST         = "客服列表"
 	MSG_TYPE_RECEPTION       = "接待"
 	MSG_TYPE_MESSAGE         = "消息"
@@ -251,7 +253,17 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", threadInfoBytes)
 
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
+	var kfIdInterface interface{} = kfId
+	if _kfId, err := strconv.Atoi(kfId); err == nil {
+		kfIdInterface = _kfId
+	}
+
+	var channelIdInterface interface{} = channelId
+	if _channelId, err := strconv.Atoi(channelId); err == nil {
+		channelIdInterface = _channelId
+	}
+
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
@@ -318,7 +330,17 @@ func HandleChatMessage(message map[string]interface{}) error {
 	socketIPMap := make(map[string]interface{})
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
+	var kfIdInterface interface{} = kfId
+	if _kfId, err := strconv.Atoi(kfId); err == nil {
+		kfIdInterface = _kfId
+	}
+
+	var channelIdInterface interface{} = channelId
+	if _channelId, err := strconv.Atoi(channelId); err == nil {
+		channelIdInterface = _channelId
+	}
+
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
@@ -365,6 +387,7 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 	}
 
 	socketIPMap := make(map[string]interface{})
+	fmt.Printf("push thread list message: %+v\n", string(threadListMsgBytes))
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
 	// get all the messages for the current thread
@@ -385,7 +408,17 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 		msgList[index] = _msg
 	}
 
-	msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "messages": msgList}
+	var kfIdInterface interface{} = kfId
+	if _kfId, err := strconv.Atoi(kfId); err == nil {
+		kfIdInterface = _kfId
+	}
+
+	var channelIdInterface interface{} = channelId
+	if _channelId, err := strconv.Atoi(channelId); err == nil {
+		channelIdInterface = _channelId
+	}
+
+	msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE_LIST, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "messages": msgList}
 	msgListMessageBytes, _ := json.Marshal(msgListMessage)
 
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_ALL_MSG], BIZ_TYPE_KF, kfId, "", msgListMessageBytes)
@@ -450,6 +483,15 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 		fmt.Printf("ERROR: Fail to get the messages with error: %+v", err)
 		return errors.New("Fail to get the messages")
 	}
+	var kfIdInterface interface{} = kfId
+	if _kfId, err := strconv.Atoi(kfId); err == nil {
+		kfIdInterface = _kfId
+	}
+
+	var channelIdInterface interface{} = channelId
+	if _channelId, err := strconv.Atoi(channelId); err == nil {
+		channelIdInterface = _channelId
+	}
 
 	if msgs != nil {
 		msgList := make([]map[string]interface{}, len(msgs.([]interface{})))
@@ -458,7 +500,7 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 			json.Unmarshal(msg.([]byte), &_msg)
 			msgList[index] = _msg
 		}
-		msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "messages": msgList}
+		msgListMessage := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "messages": msgList}
 		if saveMsgAPIInterface != nil {
 			saveMsgAPI, ok := saveMsgAPIInterface.(string)
 			if ok && saveMsgAPI != "" {
@@ -470,7 +512,7 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 	// Todo: delete the thread and messages
 
 	// push the current message to the counterpart
-	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 
 	switch bizType {
@@ -592,8 +634,18 @@ func getAllThreads(c redis.Conn, threadKey, kfId, channelId string) ([]byte, err
 		}
 	}
 
+	var kfIdInterface interface{} = kfId
+	if _kfId, err := strconv.Atoi(kfId); err == nil {
+		kfIdInterface = _kfId
+	}
+
+	var channelIdInterface interface{} = channelId
+	if _channelId, err := strconv.Atoi(channelId); err == nil {
+		channelIdInterface = _channelId
+	}
+
 	// push all the threads to the kf
-	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfId, "channel_id": channelId, "threads": threadlist}
+	threadListMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_CUSTOMER_LIST, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threads": threadlist}
 	threadListMsgBytes, _ := json.Marshal(threadListMsg)
 	return threadListMsgBytes, nil
 }

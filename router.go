@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +48,9 @@ func handleMsgFromService(c *gin.Context) {
 	if act, ok := msg["act"]; ok && act == MSG_TYPE_CHAT || act == MSG_TYPE_QUIT_CHAT {
 		msg["biz_type"] = BIZ_TYPE_CUSTOMER
 	}
+
+	msgBytes, _ := json.Marshal(msg)
+	fmt.Printf("message received is %v\n", string(msgBytes))
 
 	// process the message
 	if err := HandleMessage(msg); err != nil {

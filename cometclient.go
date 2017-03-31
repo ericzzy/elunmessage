@@ -119,6 +119,8 @@ func (client *CometClient) Send() {
 	for {
 		select {
 		case message, ok := <-client.send:
+			fmt.Printf("message sent to client: page %s, channelId: %s, clientId %s\n", client.page, client.channelId, client.bizId)
+			fmt.Printf("message sent to client is %s\n", string(message))
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The hub closed the channel.
