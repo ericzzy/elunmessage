@@ -67,6 +67,7 @@ func (h *CometHub) Run() {
 				}
 			}(client)
 		case client := <-h.unregister:
+			fmt.Println("close the client")
 			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", client.bizType, client.bizId, client.channelId, client.page)
 			h.mutex.Lock()
 			if _, ok := h.clients[clientKey]; ok {

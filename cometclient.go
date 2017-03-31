@@ -43,6 +43,9 @@ type CometClient struct {
 	closeChan             chan struct{}
 	adminMonitorCloseChan chan struct{}
 	msgHandleCloseChan    chan struct{}
+
+	pingFailCount int
+	sendFailCount int
 }
 
 func newCometClient(_hub *CometHub, _conn *websocket.Conn, msgChanSize int, _bizId, _bizType, channelId, page string) *CometClient {
@@ -61,6 +64,9 @@ func newCometClient(_hub *CometHub, _conn *websocket.Conn, msgChanSize int, _biz
 		closeChan:             make(chan struct{}),
 		adminMonitorCloseChan: make(chan struct{}),
 		msgHandleCloseChan:    make(chan struct{}),
+
+		pingFailCount: 0,
+		sendFailCount: 0,
 	}
 }
 
@@ -75,6 +81,7 @@ func (client *CometClient) Close() {
 
 func (client *CometClient) Receive() {
 	defer func() {
+		fmt.Println("receive client close")
 		client.conn.Close()
 
 		client.hub.unregister <- client
@@ -91,6 +98,7 @@ func (client *CometClient) Receive() {
 	for {
 		_, message, err := client.conn.ReadMessage()
 		if err != nil {
+			fmt.Printf("socket read err is %+v\n", err)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				fmt.Printf("error: %v\n", err)
 			}
@@ -105,6 +113,7 @@ func (client *CometClient) Send() {
 	ticker := time.NewTicker(pingPeriod)
 
 	defer func() {
+		fmt.Println("send client close")
 		ticker.Stop()
 		client.conn.Close()
 
@@ -121,6 +130,7 @@ func (client *CometClient) Send() {
 		case message, ok := <-client.send:
 			fmt.Printf("message sent to client: page %s, channelId: %s, clientId %s\n", client.page, client.channelId, client.bizId)
 			fmt.Printf("message sent to client is %s\n", string(message))
+			//if string(message) != "" {
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The hub closed the channel.
@@ -135,13 +145,20 @@ func (client *CometClient) Send() {
 			}
 			w.Write(message)
 			if err := w.Close(); err != nil {
-				return
+				client.sendFailCount += 1
+				if client.sendFailCount > 10 {
+					return
+				}
 			}
+			//}
 		case <-ticker.C:
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				fmt.Printf("failed to send the socket ping message\n")
-				return
+				client.pingFailCount += 1
+				if client.pingFailCount > 100 {
+					return
+				}
 			}
 		}
 	}

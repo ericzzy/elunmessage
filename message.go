@@ -594,6 +594,11 @@ func preGetThreadConfigAndMerge(c redis.Conn, message map[string]interface{}, th
 		if saveMsgAPIInterface != nil {
 			message["savemsg_api"] = saveMsgAPIInterface
 		}
+
+		threadinfoInterface := existThread["threadinfo"]
+		if threadinfoInterface != nil {
+			message["threadinfo"] = threadinfoInterface
+		}
 	}
 
 	if kfPushDataObj == nil {
@@ -654,7 +659,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 	if socketIPMap == nil {
 		socketIPMap = make(map[string]interface{})
 	}
-	if pages == nil || message == nil {
+	if pages == nil || message == nil || len(message) == 0 {
 		return
 	}
 
@@ -688,6 +693,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 					defer func() {
 						recover()
 					}()
+					fmt.Println("hello world")
 					cometClient.send <- message
 				}()
 			}
