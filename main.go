@@ -43,19 +43,23 @@ func init() {
 }
 
 func main() {
-	redisPool = redis.NewPool(func() (redis.Conn, error) {
-		var c redis.Conn
-		var err error
-		if redisPwd != "" {
-			c, err = redis.Dial("tcp", redisBindAddress, redis.DialPassword(redisPwd))
-		} else {
-			c, err = redis.Dial("tcp", redisBindAddress)
-		}
-		if err != nil {
-			return nil, err
-		}
-		return c, err
-	}, 100)
+	redisPool = &redis.Pool{
+		MaxIdle:   100,
+		MaxActive: 10000,
+		Dial: func() (redis.Conn, error) {
+			var c redis.Conn
+			var err error
+			if redisPwd != "" {
+				c, err = redis.Dial("tcp", redisBindAddress, redis.DialPassword(redisPwd))
+			} else {
+				c, err = redis.Dial("tcp", redisBindAddress)
+			}
+			if err != nil {
+				return nil, err
+			}
+			return c, err
+		},
+	}
 
 	if redisPool == nil {
 		fmt.Println("Redis服务不可用")

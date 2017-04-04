@@ -32,6 +32,10 @@ func NewCometHub() *CometHub {
 }
 
 func (h *CometHub) Run() {
+	defer func() {
+		if err := recover(); err != nil {
+		}
+	}()
 	for {
 		select {
 		case client := <-h.register:
@@ -84,6 +88,7 @@ func (h *CometHub) Run() {
 }
 
 func storeSocketMap(bizType, bizId, channelId, page, ip string) error {
+	fmt.Printf("store the socket connection: bizType: %s, bizId %s, channelId: %s, page: %s, ip: %s", bizType, bizId, channelId, page, ip)
 	c := redisPool.Get()
 	defer c.Close()
 

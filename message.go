@@ -275,6 +275,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 
 	// send or push the message via api or socket
 	// get the customer id
+	fmt.Printf("push current message to customer\n")
 	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
 	return nil
 }
@@ -595,9 +596,19 @@ func preGetThreadConfigAndMerge(c redis.Conn, message map[string]interface{}, th
 			message["savemsg_api"] = saveMsgAPIInterface
 		}
 
+		newThreadInfo, _ := message["threadinfo"]
+
 		threadinfoInterface := existThread["threadinfo"]
-		if threadinfoInterface != nil {
-			message["threadinfo"] = threadinfoInterface
+		if threadinfoInterface != nil && reflect.ValueOf(threadinfoInterface).Kind() == reflect.Map {
+			threadinfoMap := threadinfoInterface.(map[string]interface{})
+			if newThreadInfo != nil && reflect.ValueOf(newThreadInfo).Kind() == reflect.Map {
+				// merge the new thread info
+				newThreadInfoMap := newThreadInfo.(map[string]interface{})
+				for k, v := range newThreadInfoMap {
+					threadinfoMap[k] = v
+				}
+			}
+			message["threadinfo"] = threadinfoMap
 		}
 	}
 
@@ -698,7 +709,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 				}()
 			}
 		} else {
-			PushRPCMessage(socketIP, [][]byte{message}, bizType, bizId, channelId, page)
+			go PushRPCMessage(socketIP, [][]byte{message}, bizType, bizId, channelId, page)
 		}
 	}
 }
@@ -706,31 +717,37 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 func pushCurrentMsgToCustomer(c redis.Conn, message map[string]interface{}, sendMsgTypeInterface interface{}, channelId string, currentMsgBytes []byte, currentMsg map[string]interface{}, socketIPMap map[string]interface{}) {
 	threadInfo, ok := message["threadinfo"]
 	if !ok {
+		fmt.Printf("Error: thread info does not exist\n")
 		return
 	}
 
-	if reflect.TypeOf(threadInfo).String() != "map[string]interface {}" {
+	if reflect.ValueOf(threadInfo).Kind() != reflect.Map {
+		fmt.Printf("Error: thred info is not map\n")
 		return
 	}
 
 	threadInfoMap := threadInfo.(map[string]interface{})
 	customerIdObj, ok := threadInfoMap["customer_id"]
 	if !ok {
+		fmt.Printf("Error: customer_id is not in the thread\n")
 		return
 	}
 
 	customerId := fmt.Sprintf("%v", customerIdObj)
 	if customerId == "" {
+		fmt.Printf("INFO: customer id is empty so no mesage is sent or push\n")
 		return
 	}
 
 	// how to push the message
 	if sendMsgTypeInterface == nil || sendMsgTypeInterface == "" {
+		fmt.Printf("push message to customer\n")
 		pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
 	} else {
 		_sendMsgType, ok := sendMsgTypeInterface.(string)
 		if ok {
-			MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
+			fmt.Printf("send message to customer via %s\n", _sendMsgType)
+			go MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
 		}
 	}
 }
