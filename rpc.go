@@ -28,9 +28,14 @@ func (h *PushMessageHandler) Push(message *PushMessage, reply *int) error {
 
 	clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", message.BizType, message.BizId, message.ChannelId, message.Page)
 
-	h.hub.mutex.RLock()
-	client := h.hub.clients[clientKey]
-	h.hub.mutex.RUnlock()
+	//h.hub.mutex.RLock()
+	_client, ok := h.hub.clients.Get(clientKey)
+	if !ok {
+		return nil
+	}
+
+	client := _client.(*CometClient)
+	//h.hub.mutex.RUnlock()
 
 	if client == nil {
 		return nil

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/garyburd/redigo/redis"
+	"github.com/orcaman/concurrent-map"
 )
 
 const (
@@ -16,7 +17,8 @@ const (
 )
 
 type CometHub struct {
-	clients    map[string]*CometClient
+	//clients    map[string]*CometClient
+	clients    cmap.ConcurrentMap
 	register   chan *CometClient
 	unregister chan *CometClient
 	mutex      *sync.RWMutex
@@ -26,8 +28,9 @@ func NewCometHub() *CometHub {
 	return &CometHub{
 		register:   make(chan *CometClient),
 		unregister: make(chan *CometClient),
-		clients:    make(map[string]*CometClient),
-		mutex:      new(sync.RWMutex),
+		//clients:    make(map[string]*CometClient),
+		clients: cmap.New(),
+		mutex:   new(sync.RWMutex),
 	}
 }
 
@@ -39,15 +42,17 @@ func (h *CometHub) Run() {
 	for {
 		select {
 		case client := <-h.register:
+			fmt.Printf("new client is registering..: %+v\n", *client)
 			if err := storeSocketMap(client.bizType, client.bizId, client.channelId, client.page, bindIPAddress); err != nil {
 				client.closeChan <- struct{}{}
 				continue
 			}
 
 			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", client.bizType, client.bizId, client.channelId, client.page)
-			h.mutex.Lock()
-			h.clients[clientKey] = client
-			h.mutex.Unlock()
+			//h.mutex.Lock()
+			//h.clients[clientKey] = client
+			//h.mutex.Unlock()
+			h.clients.Set(clientKey, client)
 
 			if client.bizType == BIZ_TYPE_ADMIN {
 				fmt.Printf("listen to the admin monitor")
@@ -73,13 +78,15 @@ func (h *CometHub) Run() {
 		case client := <-h.unregister:
 			fmt.Println("close the client")
 			clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", client.bizType, client.bizId, client.channelId, client.page)
-			h.mutex.Lock()
-			if _, ok := h.clients[clientKey]; ok {
-				delete(h.clients, clientKey)
+			//h.mutex.Lock()
+			//if _, ok := h.clients[clientKey]; ok {
+			if _, ok := h.clients.Get(clientKey); ok {
+				//delete(h.clients, clientKey)
+				h.clients.Remove(clientKey)
 				close(client.send)
 				close(client.receive)
 			}
-			h.mutex.Unlock()
+			//h.mutex.Unlock()
 
 			// delete the socket map in the redis
 			deleteSocketMap(client.bizType, client.bizId, client.channelId, client.page)

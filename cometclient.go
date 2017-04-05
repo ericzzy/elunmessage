@@ -165,6 +165,7 @@ func (client *CometClient) Send() {
 }
 
 func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("new connection is coming\n")
 	clientId := r.URL.Query().Get("clientId")
 	clientType := r.URL.Query().Get("clientType")
 	channelId := r.URL.Query().Get("channelId")
@@ -181,7 +182,9 @@ func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := newCometClient(hub, conn, 1024, clientId, clientType, channelId, page)
+	fmt.Println("prepare to register the client")
 	client.hub.register <- client
+	fmt.Println("finish to register the client")
 
 	go client.Send()
 	go client.Close()

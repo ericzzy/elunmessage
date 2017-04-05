@@ -97,6 +97,8 @@ func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status strin
 	c := redisPool.Get()
 	defer c.Close()
 
+	fmt.Printf("succeed to get the redis connection: %+v", c)
+
 	// insert or update the keifu info and status
 	if _, err := c.Do("HSET", KEY_KFLIST, kfId, msg); err != nil {
 		fmt.Println("ERROR: Fail to store the kf info with error: %+v", err)
@@ -170,6 +172,8 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	c := redisPool.Get()
 	defer c.Close()
 
+	fmt.Printf("succeed to get the redis connection: %+v", c)
+
 	if _, err := c.Do("HSET", threadKey, threadId, string(threadInfoBytes)); err != nil {
 		fmt.Printf("ERROR: Fail to store the thread info with error: %+v\n", err)
 		return errors.New("Fail to store the thread info")
@@ -188,14 +192,19 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 		return err
 	}
 
+	//cometHub.mutex.RLock()
+	//defer cometHub.mutex.RUnlock()
+
 	socketIPMap := make(map[string]interface{})
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
 	// handle the current thread
-	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", threadInfoBytes)
+	message["act"] = MSG_TYPE_CUSTOMER_IN
+	currentThreadInfoBytes, _ := json.Marshal(message)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", currentThreadInfoBytes)
 
 	// broadcat the current thread info to admin
-	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(threadInfoBytes)); err != nil {
+	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(currentThreadInfoBytes)); err != nil {
 		fmt.Printf("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v\n", err)
 		return nil
 	}
@@ -224,6 +233,8 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	c := redisPool.Get()
 	defer c.Close()
 
+	fmt.Printf("succeed to get the redis connection: %+v", c)
+
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 	sendMsgTypeInterface, _, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
@@ -248,10 +259,15 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
+	//cometHub.mutex.RLock()
+	//defer cometHub.mutex.RUnlock()
+
 	socketIPMap := make(map[string]interface{})
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
-	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", threadInfoBytes)
+	message["act"] = MSG_TYPE_RECEPTION
+	currentThreadInfoBytes, _ := json.Marshal(message)
+	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", currentThreadInfoBytes)
 
 	var kfIdInterface interface{} = kfId
 	if _kfId, err := strconv.Atoi(kfId); err == nil {
@@ -268,7 +284,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
 	// broadcat the current thread info to admin
-	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(threadInfoBytes)); err != nil {
+	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(currentThreadInfoBytes)); err != nil {
 		fmt.Println("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v", err)
 		return errors.New("Faile to publish the current thread info to admin monitor")
 	}
@@ -303,6 +319,8 @@ func HandleChatMessage(message map[string]interface{}) error {
 	c := redisPool.Get()
 	defer c.Close()
 
+	fmt.Printf("succeed to get the redis connection: %+v", c)
+
 	// update the thread info
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 	sendMsgTypeInterface, _, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
@@ -328,6 +346,8 @@ func HandleChatMessage(message map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
+	//cometHub.mutex.RLock()
+	//defer cometHub.mutex.RUnlock()
 	socketIPMap := make(map[string]interface{})
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
@@ -370,6 +390,8 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 	c := redisPool.Get()
 	defer c.Close()
 
+	fmt.Printf("succeed to get the redis connection: %+v", c)
+
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 	_, _, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
@@ -387,6 +409,8 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 		return err
 	}
 
+	//cometHub.mutex.RLock()
+	//defer cometHub.mutex.RUnlock()
 	socketIPMap := make(map[string]interface{})
 	fmt.Printf("push thread list message: %+v\n", string(threadListMsgBytes))
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
@@ -451,6 +475,8 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 	c := redisPool.Get()
 	defer c.Close()
 
+	fmt.Printf("succeed to get the redis connection: %+v", c)
+
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 	sendMsgTypeInterface, saveMsgAPIInterface, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
@@ -475,6 +501,8 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 		return err
 	}
 
+	//cometHub.mutex.RLock()
+	//defer cometHub.mutex.RUnlock()
 	socketIPMap := make(map[string]interface{})
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_THREAD_LIST], BIZ_TYPE_KF, kfId, "", threadListMsgBytes)
 
@@ -667,10 +695,12 @@ func getAllThreads(c redis.Conn, threadKey, kfId, channelId string) ([]byte, err
 }
 
 func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, bizType, bizId, channelId string, message []byte) {
+	fmt.Println("entering push data")
 	if socketIPMap == nil {
 		socketIPMap = make(map[string]interface{})
 	}
 	if pages == nil || message == nil || len(message) == 0 {
+		fmt.Println("no message need to push")
 		return
 	}
 
@@ -696,10 +726,17 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 		// push the current thread info to the corresponding kf
 		socketIP := string(socketIPVal.([]byte))
 		if socketIP != "" && socketIP == bindIPAddress {
-			cometHub.mutex.RLock()
-			cometClient := cometHub.clients[clientKey]
-			cometHub.mutex.RUnlock()
+			fmt.Println("push message locally")
+			//cometClient := cometHub.clients[clientKey]
+			var cometClient *CometClient
+			_cometClient, ok := cometHub.clients.Get(clientKey)
+			if !ok {
+				continue
+			}
+			cometClient = _cometClient.(*CometClient)
+			fmt.Println("prepare to push message")
 			if cometClient != nil {
+				fmt.Println("start to push message")
 				go func() {
 					defer func() {
 						recover()
@@ -709,6 +746,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 				}()
 			}
 		} else {
+			fmt.Println("send message via rpc")
 			go PushRPCMessage(socketIP, [][]byte{message}, bizType, bizId, channelId, page)
 		}
 	}
@@ -750,4 +788,5 @@ func pushCurrentMsgToCustomer(c redis.Conn, message map[string]interface{}, send
 			go MakeHttpRequest(POST, _sendMsgType, currentMsg, nil)
 		}
 	}
+	fmt.Println("exit from pushCurrentMsgToCustomer")
 }
