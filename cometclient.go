@@ -117,10 +117,6 @@ func (client *CometClient) Send() {
 		ticker.Stop()
 		client.conn.Close()
 
-		client.hub.unregister <- client
-		client.adminMonitorCloseChan <- struct{}{}
-		client.msgHandleCloseChan <- struct{}{}
-
 		if err := recover(); err != nil {
 		}
 	}()
@@ -156,7 +152,7 @@ func (client *CometClient) Send() {
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				fmt.Printf("failed to send the socket ping message, client is %+v\n", *client)
 				client.pingFailCount += 1
-				if client.pingFailCount > 100 {
+				if client.pingFailCount > 10 {
 					return
 				}
 			}

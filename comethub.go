@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/orcaman/concurrent-map"
@@ -26,8 +27,8 @@ type CometHub struct {
 
 func NewCometHub() *CometHub {
 	return &CometHub{
-		register:   make(chan *CometClient),
-		unregister: make(chan *CometClient),
+		register:   make(chan *CometClient, 1024),
+		unregister: make(chan *CometClient, 1024),
 		//clients:    make(map[string]*CometClient),
 		clients: cmap.New(),
 		mutex:   new(sync.RWMutex),
@@ -37,6 +38,7 @@ func NewCometHub() *CometHub {
 func (h *CometHub) Run() {
 	defer func() {
 		if err := recover(); err != nil {
+			fmt.Printf("%v - panic err: %+v\n", time.Now(), err)
 		}
 	}()
 	for {
@@ -81,15 +83,37 @@ func (h *CometHub) Run() {
 			//h.mutex.Lock()
 			//if _, ok := h.clients[clientKey]; ok {
 			if _, ok := h.clients.Get(clientKey); ok {
+				fmt.Println("start to close the client")
 				//delete(h.clients, clientKey)
 				h.clients.Remove(clientKey)
 				close(client.send)
 				close(client.receive)
+				/*
+					fmt.Println("success to remove the client from the map")
+					fmt.Println("the client to close is %+v", *client)
+					fmt.Println("the client send to close is %+v", client.send)
+					if _, ok := <-(client.send); ok {
+						fmt.Println("close the send channel")
+						close(client.send)
+					} else {
+						fmt.Println("the send channel has been closed")
+					}
+					fmt.Println("success to close the send channel")
+					if _, ok := <-(client.receive); ok {
+						fmt.Println("close the receive channel")
+						close(client.receive)
+					} else {
+						fmt.Println("the receive channel has been closed")
+					}
+					fmt.Println("success to close the receive channel")
+				*/
 			}
 			//h.mutex.Unlock()
 
+			fmt.Println("success to close the client1")
 			// delete the socket map in the redis
 			deleteSocketMap(client.bizType, client.bizId, client.channelId, client.page)
+			fmt.Println("success to close the client")
 		}
 	}
 }
