@@ -154,7 +154,7 @@ func subscribeAdminOnlineMonitor(client *CometClient) {
 
 	// subscribe the channel
 	psc := redis.PubSubConn{c}
-	psc.Subscribe(CHANNEL_ADMIN_ONLINE_MONITOR)
+	psc.Subscribe(CHANNEL_ADMIN_ONLINE_MONITOR + client.page)
 	for {
 		switch v := psc.Receive().(type) {
 		case redis.Message:

@@ -23,6 +23,7 @@ const (
 	MSG_TYPE_SWITCH_CUSTOMER = "打开会话"
 	MSG_TYPE_KEFU_OFFLINE    = "客服下线"
 	MSG_TYPE_QUIT_CHAT       = "退出"
+	MSG_TYPE_ADMIN_ONLINE    = "管理员上线"
 
 	STATUS_ONLINE  = "online"
 	STATUS_OFFLINE = "offline"
@@ -64,6 +65,8 @@ func HandleMessage(message map[string]interface{}) error {
 		return HandleKefuOnlineOfflineMessage(message, STATUS_OFFLINE)
 	case MSG_TYPE_QUIT_CHAT:
 		return HandleQuitChatMessage(message)
+	case MSG_TYPE_ADMIN_ONLINE:
+		return HandleAdminOnlineMessage(message)
 	}
 
 	return nil
@@ -75,6 +78,7 @@ func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status strin
 			fmt.Printf("recover from the error: %+v\n", err)
 		}
 	}()
+	act := message[FIELD_ACT]
 	// delete the act field
 	delete(message, FIELD_ACT)
 	message["status"] = status
@@ -90,14 +94,41 @@ func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status strin
 		return nil
 	}
 
-	// marshal the kefu info to string
-	msgBytes, _ := json.Marshal(message)
-	msg := string(msgBytes)
-
 	c := redisPool.Get()
 	defer c.Close()
 
 	fmt.Printf("succeed to get the redis connection: %+v", c)
+
+	existKf, err := c.Do("HGET", KEY_KFLIST, kfId)
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the exist kf with error: %+v\n", err)
+		return errors.New("Fail to get the exist kf")
+	}
+
+	if existKf != nil {
+		var existKfMap map[string]interface{}
+		if err := json.Unmarshal(existKf.([]byte), &existKfMap); err != nil {
+			return errors.New("Could not unmarshal the kf data")
+		}
+
+		kfInfo := existKfMap["kfinfo"].(map[string]interface{})
+		for k, v := range message {
+			if k != "kfinfo" {
+				existKfMap[k] = v
+				continue
+			}
+			newKfInfo := v.(map[string]interface{})
+			for _k, _v := range newKfInfo {
+				kfInfo[_k] = _v
+			}
+			existKfMap[k] = kfInfo
+		}
+
+		message = existKfMap
+	}
+	// marshal the kefu info to string
+	msgBytes, _ := json.Marshal(message)
+	msg := string(msgBytes)
 
 	// insert or update the keifu info and status
 	if _, err := c.Do("HSET", KEY_KFLIST, kfId, msg); err != nil {
@@ -124,13 +155,32 @@ func HandleKefuOnlineOfflineMessage(message map[string]interface{}, status strin
 		}
 	}
 
-	kfListPublish := map[string]interface{}{FIELD_ACT: MSG_TYPE_KF_LIST, "kfslist": kflist}
+	kfListPublish := map[string]interface{}{FIELD_ACT: act, "kfslist": kflist}
 	kfListPublishBytes, _ := json.Marshal(kfListPublish)
 
-	// publish the kf list to admin monitor
-	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(kfListPublishBytes)); err != nil {
-		fmt.Println("ERROR: Fail to publish the kf list with error: %+v", err)
+	adminPushDataInterface, err := c.Do("GET", "admin_push_data")
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the admin push data with error: %+v\n", err)
+		return errors.New("Fail to get the admin push data")
+	}
+
+	var adminPushData map[string][]string
+	if err := json.Unmarshal(adminPushDataInterface.([]byte), &adminPushData); err != nil {
+		fmt.Printf("WARN: Fail to unmarshal the admin push data with error: %+v\n", err)
 		return nil
+	}
+
+	kfListPages := adminPushData["kf_list"]
+	if kfListPages == nil || len(kfListPages) == 0 {
+		return nil
+	}
+
+	for _, page := range kfListPages {
+		// publish the kf list to admin monitor
+		if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR+page, string(kfListPublishBytes)); err != nil {
+			fmt.Println("ERROR: Fail to publish the kf list with error: %+v", err)
+			return nil
+		}
 	}
 
 	return nil
@@ -203,10 +253,38 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	currentThreadInfoBytes, _ := json.Marshal(message)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", currentThreadInfoBytes)
 
-	// broadcat the current thread info to admin
-	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(currentThreadInfoBytes)); err != nil {
-		fmt.Printf("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v\n", err)
+	adminPushDataInterface, err := c.Do("GET", "admin_push_data")
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the admin push data with error: %+v\n", err)
+		return errors.New("Fail to get the admin push data")
+	}
+
+	var adminPushData map[string][]string
+	if err := json.Unmarshal(adminPushDataInterface.([]byte), &adminPushData); err != nil {
+		fmt.Printf("WARN: Fail to unmarshal the admin push data with error: %+v\n", err)
 		return nil
+	}
+
+	currentThreadPages := adminPushData["current_thread"]
+	threadListPages := adminPushData["thread_list"]
+
+	if currentThreadPages != nil && len(currentThreadPages) > 0 {
+		// broadcat the current thread info to admin
+		for _, page := range currentThreadPages {
+			if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR+page, string(currentThreadInfoBytes)); err != nil {
+				fmt.Printf("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v\n", err)
+				return nil
+			}
+		}
+	}
+
+	if threadListPages != nil && len(threadListPages) > 0 {
+		for _, page := range threadListPages {
+			if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR+page, string(threadListMsgBytes)); err != nil {
+				fmt.Printf("ERROR: Fail to publish the thread list to admin online monitor  with error: %+v\n", err)
+				return nil
+			}
+		}
 	}
 
 	return nil
@@ -283,16 +361,45 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
-	// broadcat the current thread info to admin
-	if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR, string(currentThreadInfoBytes)); err != nil {
-		fmt.Println("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v", err)
-		return errors.New("Faile to publish the current thread info to admin monitor")
-	}
-
 	// send or push the message via api or socket
 	// get the customer id
 	fmt.Printf("push current message to customer\n")
 	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+
+	adminPushDataInterface, err := c.Do("GET", "admin_push_data")
+	if err != nil {
+		fmt.Printf("ERROR: Fail to get the admin push data with error: %+v\n", err)
+		return errors.New("Fail to get the admin push data")
+	}
+
+	var adminPushData map[string][]string
+	if err := json.Unmarshal(adminPushDataInterface.([]byte), &adminPushData); err != nil {
+		fmt.Printf("WARN: Fail to unmarshal the admin push data with error: %+v\n", err)
+		return nil
+	}
+
+	currentThreadPages := adminPushData["current_thread"]
+	threadListPages := adminPushData["thread_list"]
+
+	if currentThreadPages != nil && len(currentThreadPages) > 0 {
+		// broadcat the current thread info to admin
+		for _, page := range currentThreadPages {
+			if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR+page, string(currentThreadInfoBytes)); err != nil {
+				fmt.Printf("ERROR: Fail to publish the current thread info to admin online monitor  with error: %+v\n", err)
+				return nil
+			}
+		}
+	}
+
+	if threadListPages != nil && len(threadListPages) > 0 {
+		for _, page := range threadListPages {
+			if _, err := c.Do("PUBLISH", CHANNEL_ADMIN_ONLINE_MONITOR+page, string(threadListMsgBytes)); err != nil {
+				fmt.Printf("ERROR: Fail to publish the thread list to admin online monitor  with error: %+v\n", err)
+				return nil
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -551,6 +658,27 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 	case "kf":
 		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
 	}
+	return nil
+}
+
+func HandleAdminOnlineMessage(message map[string]interface{}) error {
+	delete(message, "act")
+
+	adminPushData, ok := message["admin_push_data"]
+	if !ok {
+		return nil
+	}
+
+	adminPushDataBytes, _ := json.Marshal(adminPushData)
+
+	c := redisPool.Get()
+	defer c.Close()
+
+	if _, err := c.Do("SET", "admin_push_data", string(adminPushDataBytes)); err != nil {
+		fmt.Println("ERROR: Fail to store the admin push data with error: %+v", err)
+		return errors.New("Fail to store the admin push data")
+	}
+
 	return nil
 }
 
