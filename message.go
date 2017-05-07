@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 )
@@ -253,6 +254,12 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	currentThreadInfoBytes, _ := json.Marshal(message)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_THREAD], BIZ_TYPE_KF, kfId, "", currentThreadInfoBytes)
 
+	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfId, "channel_id": channelId, "threadid": threadId, "message": chatMessage}
+	currentMsgBytes, _ := json.Marshal(currentMsg)
+	fmt.Printf("push current message to customer\n")
+	sendMsgTypeInterface := message["sendmsg_type"]
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+
 	adminPushDataInterface, err := c.Do("GET", "admin_push_data")
 	if err != nil {
 		fmt.Printf("ERROR: Fail to get the admin push data with error: %+v\n", err)
@@ -419,7 +426,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 	if !ok {
 		return errors.New("message was not provided")
 	}
-	bizType := message["biz_type"]
+	//bizType := message["biz_type"]
 	delete(message, "message")
 	delete(message, "biz_type")
 
@@ -472,11 +479,11 @@ func HandleChatMessage(message map[string]interface{}) error {
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
-	if bizType == BIZ_TYPE_KF {
-		// send or push the message via api or socket
-		// get the customer id
-		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
-	}
+	//if bizType == BIZ_TYPE_KF {
+	// send or push the message via api or socket
+	// get the customer id
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+	//}
 	return nil
 }
 
@@ -559,6 +566,7 @@ func HandleSwitchCustomerMessage(message map[string]interface{}) error {
 }
 
 func HandleQuitChatMessage(message map[string]interface{}) error {
+	fmt.Printf("The quit chat message is %+v\n", message)
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Printf("recover from the error: %+v\n", err)
@@ -587,6 +595,7 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 	threadKey := fmt.Sprintf("threads:kfid:%s:channelid:%s", kfId, channelId)
 	sendMsgTypeInterface, saveMsgAPIInterface, kfPushData, err := preGetThreadConfigAndMerge(c, message, threadKey, threadId)
 	if err != nil {
+		fmt.Printf("preGetThreadConfigAndMerge err is %v\n", err)
 		return err
 	}
 
@@ -595,6 +604,7 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 		fmt.Println("ERROR: Fail to delete the thread info with error: %+v", err)
 		return errors.New("Fail to delete the thread info")
 	}
+	fmt.Printf("Succeed to delete the thread %s: %s\n", threadKey, threadId)
 
 	// store the message
 	chatMsgBytes, _ := json.Marshal(chatMessage)
@@ -662,7 +672,9 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 }
 
 func HandleAdminOnlineMessage(message map[string]interface{}) error {
+	fmt.Printf("admin oneline is coming\n")
 	delete(message, "act")
+	fmt.Printf("[%+v] admin online message is %v\n", time.Now(), message)
 
 	adminPushData, ok := message["admin_push_data"]
 	if !ok {
@@ -834,6 +846,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 
 	for _, page := range pages {
 		clientKey := fmt.Sprintf("socket:biztype:%s:bizid:%s:channelid:%s:page:%s", bizType, bizId, channelId, page)
+		fmt.Printf("pushing data to %s\n", clientKey)
 		socketIPVal, ok := socketIPMap[clientKey]
 		if !ok {
 			// get the kf's ip
@@ -862,7 +875,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 				continue
 			}
 			cometClient = _cometClient.(*CometClient)
-			fmt.Println("prepare to push message")
+			fmt.Printf("prepare to push message to %s\n", clientKey)
 			if cometClient != nil {
 				fmt.Println("start to push message")
 				go func() {
