@@ -258,7 +258,7 @@ func HandleCustomerQueueMessage(message map[string]interface{}) error {
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 	fmt.Printf("push current message to customer\n")
 	sendMsgTypeInterface := message["sendmsg_type"]
-	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap, "kf")
 
 	adminPushDataInterface, err := c.Do("GET", "admin_push_data")
 	if err != nil {
@@ -371,7 +371,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 	// send or push the message via api or socket
 	// get the customer id
 	fmt.Printf("push current message to customer\n")
-	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap, "")
 
 	adminPushDataInterface, err := c.Do("GET", "admin_push_data")
 	if err != nil {
@@ -426,7 +426,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 	if !ok {
 		return errors.New("message was not provided")
 	}
-	//bizType := message["biz_type"]
+	bizType := message["biz_type"]
 	delete(message, "message")
 	delete(message, "biz_type")
 
@@ -482,7 +482,7 @@ func HandleChatMessage(message map[string]interface{}) error {
 	//if bizType == BIZ_TYPE_KF {
 	// send or push the message via api or socket
 	// get the customer id
-	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap, bizType.(string))
 	//}
 	return nil
 }
@@ -666,7 +666,7 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 		currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
 		pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 	case "kf":
-		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap)
+		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap, "kf")
 	}
 	return nil
 }
@@ -893,7 +893,7 @@ func pushData(c redis.Conn, socketIPMap map[string]interface{}, pages []string, 
 	}
 }
 
-func pushCurrentMsgToCustomer(c redis.Conn, message map[string]interface{}, sendMsgTypeInterface interface{}, channelId string, currentMsgBytes []byte, currentMsg map[string]interface{}, socketIPMap map[string]interface{}) {
+func pushCurrentMsgToCustomer(c redis.Conn, message map[string]interface{}, sendMsgTypeInterface interface{}, channelId string, currentMsgBytes []byte, currentMsg map[string]interface{}, socketIPMap map[string]interface{}, customerBizType string) {
 	threadInfo, ok := message["threadinfo"]
 	if !ok {
 		fmt.Printf("Error: thread info does not exist\n")
@@ -923,6 +923,9 @@ func pushCurrentMsgToCustomer(c redis.Conn, message map[string]interface{}, send
 		fmt.Printf("push message to customer\n")
 		pushData(c, socketIPMap, []string{""}, BIZ_TYPE_CUSTOMER, customerId, channelId, currentMsgBytes)
 	} else {
+		if customerBizType != "" && customerBizType != BIZ_TYPE_KF {
+			return
+		}
 		_sendMsgType, ok := sendMsgTypeInterface.(string)
 		if ok {
 			fmt.Printf("send message to customer via %s\n", _sendMsgType)
