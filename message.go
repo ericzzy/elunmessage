@@ -366,6 +366,7 @@ func HandleReceptionMessage(message map[string]interface{}) error {
 
 	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
+	fmt.Printf("Reception: kf_push_data is %+v\n", kfPushData)
 	pushData(c, socketIPMap, kfPushData[DATA_TYPE_CURRENT_MSG], BIZ_TYPE_KF, kfId, "", currentMsgBytes)
 
 	// send or push the message via api or socket
@@ -661,13 +662,9 @@ func HandleQuitChatMessage(message map[string]interface{}) error {
 	currentMsg := map[string]interface{}{FIELD_ACT: MSG_TYPE_MESSAGE, "kf_id": kfIdInterface, "channel_id": channelIdInterface, "threadid": threadId, "message": chatMessage}
 	currentMsgBytes, _ := json.Marshal(currentMsg)
 
-	switch bizType {
-	case "customer":
-		currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
-		pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
-	case "kf":
-		pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap, "kf")
-	}
+	currentMsgPages := kfPushData[DATA_TYPE_CURRENT_MSG]
+	pushData(c, socketIPMap, currentMsgPages, BIZ_TYPE_KF, kfId, "", currentMsgBytes)
+	pushCurrentMsgToCustomer(c, message, sendMsgTypeInterface, channelId, currentMsgBytes, currentMsg, socketIPMap, bizType.(string))
 	return nil
 }
 
