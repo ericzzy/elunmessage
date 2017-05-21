@@ -3,12 +3,17 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	//"net"
 	"net/http"
-	"net/rpc"
+	//"net/rpc"
 	"os"
+	"runtime"
 
 	"github.com/garyburd/redigo/redis"
-	"github.com/gin-gonic/gin"
+	//	"github.com/gin-gonic/gin"
+
+	"runtime/pprof"
 )
 
 var redisPool *redis.Pool
@@ -17,10 +22,15 @@ var cometHub *CometHub
 var redisBindAddress string
 var redisPwd string
 
+var cpuProfile string
+
 func init() {
+	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
+
 	bindServerIP := flag.String("bind", "192.168.1.8:9000", "API服务绑定IP和端口")
 	redisServerIP := flag.String("redisAddr", "192.168.1.8:6379", "Redis服务IP和端口")
 	redisServerPwd := flag.String("redisPwd", "foobared", "Redis服务密码")
+	cpuprofile := flag.String("cpuprofile", "", "write cpu profile to file")
 
 	flag.Parse()
 
@@ -40,9 +50,23 @@ func init() {
 	if redisServerPwd != nil {
 		redisPwd = *redisServerPwd
 	}
+
+	if *cpuprofile != "" {
+		cpuProfile = *cpuprofile
+	}
 }
 
 func main() {
+	if cpuProfile != "" {
+		log.Println("create the cpu profile log file")
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+
 	redisPool = &redis.Pool{
 		MaxIdle:   100,
 		MaxActive: 10000,
@@ -70,11 +94,27 @@ func main() {
 	cometHub = NewCometHub()
 	go cometHub.Run()
 
-	pushMsgHandler := &PushMessageHandler{hub: cometHub}
-	rpc.Register(pushMsgHandler)
-	rpc.HandleHTTP()
+	/*
+		if bindIPAddress != "" {
+			pushMsgHandler := &PushMessageHandler{hub: cometHub}
+			rpcServer := rpc.NewServer()
+			rpcServer.RegisterName("PushMessageHandler", pushMsgHandler)
+			rpcServer.HandleHTTP("/rpc", "/rpc/debug")
 
-	gin.SetMode(gin.ReleaseMode)
+			//gin.SetMode(gin.ReleaseMode)
+
+			l, e := net.Listen("tcp", bindIPAddress)
+			if e != nil {
+				log.Fatal("listen error:", e)
+			}
+
+			// This statement starts go's http server on
+			// socket specified by l.
+			fmt.Println("he")
+			go http.Serve(l, nil)
+
+		}
+	*/
 
 	router := initRoutes(cometHub)
 	server := &http.Server{

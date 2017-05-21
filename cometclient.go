@@ -141,20 +141,21 @@ func (client *CometClient) Send() {
 			}
 			w.Write(message)
 			if err := w.Close(); err != nil {
-				client.sendFailCount += 1
-				if client.sendFailCount > 10 {
-					return
-				}
+				//client.sendFailCount += 1
+				//if client.sendFailCount > 10 {
+				return
+				//}
 			}
 			//}
 		case <-ticker.C:
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				fmt.Printf("failed to send the socket ping message, client is %+v\n", *client)
-				client.pingFailCount += 1
-				if client.pingFailCount > 10 {
-					return
-				}
+				//fmt.Printf("failed to send the socket ping message, client is %+v\n", *client)
+				//client.pingFailCount += 1
+				//if client.pingFailCount > 10 {
+				//	return
+				//}
+				return
 			}
 		}
 	}

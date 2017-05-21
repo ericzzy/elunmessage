@@ -21,12 +21,20 @@ func initRoutes(hub *CometHub) *gin.Engine {
 
 		v1.POST("/messages", handleMsgFromService)
 
+		v1.POST("/pushmsgs", handlePushMsgService)
+
 		// add other handlers here
 	}
-	router.LoadHTMLFiles("index.html")
-	router.GET("/", func(c *gin.Context) {
-		c.HTML(200, "index.html", nil)
-	})
+
+	/*
+
+		router.LoadHTMLFiles("index.html")
+		router.GET("/", func(c *gin.Context) {
+			c.HTML(200, "index.html", nil)
+		})
+
+		return router
+	*/
 
 	return router
 }
@@ -53,12 +61,26 @@ func handleMsgFromService(c *gin.Context) {
 	fmt.Printf("message received is %v\n", string(msgBytes))
 
 	// process the message
-	if err := HandleMessage(msg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusInternalServerError, "message": err.Error()})
-		c.AbortWithError(http.StatusInternalServerError, err)
-		return
+	//if err := HandleMessage(msg); err != nil {
+	//c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusInternalServerError, "message": err.Error()})
+	//c.AbortWithError(http.StatusInternalServerError, err)
+	//return
 
+	//}
+	go HandleMessage(msg)
+
+	c.JSON(http.StatusOK, map[string]string{"result": "success"})
+}
+
+func handlePushMsgService(c *gin.Context) {
+	msg := new(PushMessage)
+	if err := c.BindJSON(msg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": "消息不能解析"})
+		c.AbortWithError(http.StatusBadRequest, errors.New("消息不能解析"))
+		return
 	}
+
+	go (&PushMessageHandler{hub: cometHub}).Push(msg, nil)
 
 	c.JSON(http.StatusOK, map[string]string{"result": "success"})
 }
