@@ -13,7 +13,9 @@ const (
 	writeWait      = 10 * time.Second
 	pongWait       = 60 * time.Second
 	maxMessageSize = 4096
-	pingPeriod     = (pongWait * 9) / 10
+	//pingPeriod     = (pongWait * 9) / 10
+	pingPeriod     = 300 * time.Second
+	readTimeout = 1200 * time.Second
 )
 
 var wsupgrader = websocket.Upgrader{
@@ -92,11 +94,15 @@ func (client *CometClient) Receive() {
 	}()
 
 	client.conn.SetReadLimit(maxMessageSize)
-	client.conn.SetReadDeadline(time.Now().Add(pongWait))
-	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	//client.conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	//client.conn.SetReadDeadline(time.Time{})
+	//client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(readTimeout)); return nil })
 
 	for {
 		_, message, err := client.conn.ReadMessage()
+		fmt.Printf("[%v]: receiving message: %s\n", time.Now(), string(message)) 
 		if err != nil {
 			fmt.Printf("socket read err is %+v\n", err)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
@@ -116,6 +122,7 @@ func (client *CometClient) Send() {
 		fmt.Println("send client close")
 		ticker.Stop()
 		client.conn.Close()
+		client.msgHandleCloseChan <- struct{}{}
 
 		if err := recover(); err != nil {
 		}
@@ -148,9 +155,11 @@ func (client *CometClient) Send() {
 			}
 			//}
 		case <-ticker.C:
+			fmt.Printf("constantly send ping message to client: %+v\n", *client)
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				//fmt.Printf("failed to send the socket ping message, client is %+v\n", *client)
+			//if err := client.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+			if err := client.conn.WriteMessage(websocket.TextMessage, []byte(`{"act": "test"}`)); err != nil {
+				fmt.Printf("failed to send the socket ping message, client is %+v\n", *client)
 				//client.pingFailCount += 1
 				//if client.pingFailCount > 10 {
 				//	return
@@ -168,7 +177,7 @@ func serveWS(hub *CometHub, w http.ResponseWriter, r *http.Request) {
 	channelId := r.URL.Query().Get("channelId")
 	page := r.URL.Query().Get("page")
 
-	if clientId == "" || clientType == "" {
+	if clientId == "" && clientType == "" {
 		return
 	}
 
